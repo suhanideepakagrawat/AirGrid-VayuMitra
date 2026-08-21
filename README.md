@@ -175,7 +175,7 @@ Only the secrets need typing, and every one is optional — with no keys the adv
 Two things worth knowing:
 
 - **`*.onrender.com` names are globally unique.** To keep these exact URLs on a different account, delete the old services first — otherwise the names are taken and every link above changes.
-- **Free instances sleep after ~15 min idle** (~30–60 s cold start). The in-app keep-alive thread and [`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml) ping both URLs every 10 minutes; set `KEEPALIVE=0` to disable.
+- **Free instances sleep after ~15 min idle** (~30–60 s cold start). A keep-alive thread pings every 10 min to avoid that, but warming is not free: two always-on services spend roughly 1,440 instance-hours a month against a free allowance near 750 — which is what suspended our first deployment about four weeks in. Worth it across a judging window, not across a month. Set `KEEPALIVE=0` and warm the URLs by hand before a demo if the deployment needs to last.
 
 ## API at a glance
 

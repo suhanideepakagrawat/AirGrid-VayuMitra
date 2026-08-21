@@ -348,9 +348,38 @@ def compare_endpoint(cities: str | None = Query(default=None)) -> dict:
 # URLs of both services every 10 minutes, which counts as inbound traffic and
 # keeps them warm — no cold starts during judging. Overridable/disable-able via
 # KEEPALIVE_URLS / KEEPALIVE=0. A GitHub Actions cron does the same as backup.
+#
+# COST, read before enabling for a long stretch: keeping a service awake spends
+# instance-hours around the clock. Two always-on free services burn ~1,440 h in
+# a month against a free allowance of ~750 — which is exactly what suspended the
+# original deployment ("Free Tier Usage Exceeded", 17 Aug 2026) about four weeks
+# after launch. It is the right trade for a judging window of a few days; for
+# anything longer set KEEPALIVE=0 and warm the URLs by hand before a demo.
 # ---------------------------------------------------------------------------
 _KEEPALIVE_DEFAULT = ("https://vayumitra-advisory.onrender.com/health,"
                       "https://airgrid-dashboard.onrender.com/")
+
+
+def _keepalive_urls() -> list[str]:
+    """URLs to warm. Prefers KEEPALIVE_URLS, then this service's own public URL.
+
+    Render injects RENDER_EXTERNAL_URL with the real hostname, so a redeploy under
+    a different service name (an *.onrender.com name is globally unique — a fresh
+    account cannot reclaim one still held by the old account) self-pings correctly
+    instead of warming someone else's service. Only the hardcoded pair, which is
+    the last resort, can go stale.
+    """
+    import os
+
+    explicit = os.getenv("KEEPALIVE_URLS", "").strip()
+    if explicit:
+        return [u.strip() for u in explicit.split(",") if u.strip()]
+
+    own = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if own:
+        return [f"{own}/health"]
+
+    return [u.strip() for u in _KEEPALIVE_DEFAULT.split(",") if u.strip()]
 
 
 def _start_keepalive() -> None:
@@ -360,8 +389,7 @@ def _start_keepalive() -> None:
 
     if os.getenv("KEEPALIVE", "1") == "0" or not os.getenv("RENDER"):
         return
-    urls = [u.strip() for u in
-            os.getenv("KEEPALIVE_URLS", _KEEPALIVE_DEFAULT).split(",") if u.strip()]
+    urls = _keepalive_urls()
 
     def _loop() -> None:
         import requests

@@ -49,6 +49,15 @@ services:
         sync: false
       - key: DEEPGRAM_TTS_MODEL
         value: aura-2-athena-en
+      # -- Keep-alive -------------------------------------------------------
+      # Free services sleep after ~15 min idle (~30-60s cold start). Warming
+      # them costs instance-hours around the clock: two always-on services burn
+      # ~1,440 h/month against a ~750 h free allowance, which is what suspended
+      # the first deployment four weeks in. Fine for a judging window, not for
+      # a month. Leave blank -> the backend just self-pings; paste BOTH public
+      # URLs (comma-separated) to warm the dashboard too; KEEPALIVE=0 to stop.
+      - key: KEEPALIVE_URLS
+        sync: false
 
   # -------------------------------------------------------------- frontend --
   - type: web

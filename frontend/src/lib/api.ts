@@ -54,6 +54,8 @@ export type WardsResponse = {
   city: string;
   data_kind: "real" | "mock";
   count: number;
+  /** When this forecast run was produced. Optional so an older API still parses. */
+  forecast_run?: ForecastRun;
   wards: LiveWard[];
 };
 
@@ -94,6 +96,51 @@ export type TopTarget = {
   rank: number;
 };
 
+/** Provenance for the forecast layer — lets any screen date its numbers instead of
+ *  implying they are current. Served on /wards and /meta. */
+export type ForecastRun = {
+  available: boolean;
+  issued_at?: string;
+  age_hours?: number;
+  age_days?: number;
+  targets?: string[];
+  source?: string;
+};
+
+/** One ward in the LIVE layer: measured now by real CPCB/DPCC/IMD instruments,
+ *  as opposed to LiveWard's model forecast for +24/48/72 h. */
+export type LiveNowWard = {
+  zone_id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  aqi: number;
+  band: string;
+  band_label: string;
+  color: string;
+  dominant_pollutant: string;
+  pollutants: Record<string, number>;
+  nearest_station: string;
+  nearest_station_km: number;
+  n_stations: number;
+  observed_at: string | null;
+};
+
+export type LiveNow = {
+  available: boolean;
+  state?: "warming";
+  reason?: string;
+  source?: string;
+  method?: string;
+  fetched_at?: string;
+  observed_at?: string | null;
+  data_age_hours?: number | null;
+  stations?: number;
+  stations_fetched?: number;
+  quality_filtered?: string[];
+  wards: LiveNowWard[];
+};
+
 export const fetchHealth = () => get<{ status: string; llm: string; voice: string }>("/health", 5000);
 export const fetchWards = (city?: string) =>
   get<WardsResponse>(`/wards${city ? `?city=${encodeURIComponent(city)}` : ""}`);
@@ -102,6 +149,7 @@ export const fetchDeployment = () =>
   get<{ available: boolean; items: DeploymentRow[] }>("/deployment?limit=30");
 export const fetchTopTargets = () =>
   get<{ available: boolean; items: TopTarget[] }>("/enforcement/top");
+export const fetchLive = () => get<LiveNow>("/live", 12000);
 
 // Query configs shared by routes (react-query is already in the root context).
 export const wardsQuery = (city?: string) => ({
@@ -138,3 +186,27 @@ export const topTargetsQuery = {
   staleTime: 5 * 60_000,
   retry: 1,
 };
+
+/** The live layer refreshes server-side every ~10 min, so poll a little faster than
+ *  that to keep the "updated Xm ago" badge honest without hammering the API. */
+export const liveQuery = {
+  queryKey: ["live-now"],
+  queryFn: fetchLive,
+  staleTime: 2 * 60_000,
+  refetchInterval: 5 * 60_000,
+  retry: 1,
+};
+
+/** "3m ago" / "2h ago" / "40d ago" — one shared formatter so every freshness badge
+ *  in the product reads identically. */
+export function timeAgo(iso?: string | null): string {
+  if (!iso) return "unknown";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "unknown";
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}

@@ -171,4 +171,47 @@ survives a checkout) and serves it on `/meta` and `/wards`.
 raw `future_aqi_forecast.csv`. Age at time of writing: **40.2 days**, targeting
 13–15 July.
 
+### B4 · Frontend — prominent freshness strip + per-ward live AQI
+**Date:** 22 Aug 2026
+
+**New:** `frontend/src/components/DataFreshness.tsx`
+**Changed:** `frontend/src/lib/api.ts` (`LiveNow` types, `fetchLive`, `liveQuery`,
+`timeAgo`), `frontend/src/routes/dashboard.tsx` (freshness strip + `LiveNowBlock`)
+
+Nothing on any screen previously said how old anything was, so a 40-day-old model
+run read exactly like a current measurement. The dashboard now opens with a
+provenance strip stating both layers side by side, and they are never conflated:
+
+- **LIVE NOW** — Delhi average AQI, worst ward, station count, "measured 1h ago",
+  with a pulsing indicator that turns amber if readings exceed 3 hours old.
+- **FORECAST +24/48/72h** — "model run 12 Jul 2026 · 40d ago · trained XGBoost models".
+
+Ward detail gained a **MEASURED NOW** block: live AQI, dominant pollutant, PM2.5 and
+PM10 in µg/m³, the contributing station and its distance, and how many stations were
+blended. Distance is shown deliberately — a ward 8 km from the nearest monitor
+deserves less confidence than one sitting on top of it.
+
+**Verified with Playwright (headless Chromium) against the live API:**
+
+| Check | Result |
+|---|---|
+| Freshness strip renders | ✅ all five elements |
+| **Horizon switching changes data** | ✅ +24h → **99**, +48h → **95**, +72h → **105** |
+| Per-ward live AQI | ✅ Narela: 137 Moderate, PM2.5 60.4 / PM10 156.4 µg/m³, station 5.47 km, 3 blended |
+| Mobile 390px | ✅ scrollWidth 390, no overflow |
+| JS console errors | ✅ none |
+
+**Sanity check of the ward number, by hand:** PM10 156.4 µg/m³ falls in the CPCB
+100–250 band → 101 + 56.4 × 99/150 = **138.2**, against the 137 shown after IDW
+blending. PM2.5 60.4 → 102.3, correctly *not* selected as the driver. The
+"driven by PM10" label is right.
+
+**Also confirmed:** the synthetic fallback scene (Delhi average 287, "Wazirpur 417")
+no longer reaches the browser — it is replaced on hydration by real values (99,
+worst ward Vishwash Nagar 171). Server-rendered HTML still contains the sample scene
+for the pre-hydration frame; replacing that is tracked separately.
+
+**Tooling note:** Playwright + Chromium installed for UI verification. Launch with
+`channel="chromium"` — the default headless-shell build is not present.
+
 *(Further entries appended as each objective lands.)*

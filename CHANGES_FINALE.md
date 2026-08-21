@@ -214,4 +214,50 @@ for the pre-hydration frame; replacing that is tracked separately.
 **Tooling note:** Playwright + Chromium installed for UI verification. Launch with
 `channel="chromium"` — the default headless-shell build is not present.
 
+### B5 · NEW — pollutant fingerprints (makes the traffic/industry/dust claims real)
+**Date:** 22 Aug 2026 · **New file:** `advisory/fingerprints.py`
+
+The site claimed NO₂, SO₂ and PM10/PM2.5 evidence it never computed — the notebook
+listed these under *"Still a future enhancement"*. They are now measured, from the
+same OpenAQ station feed, and attached to every ward on `/live`.
+
+| Signature | Measured as | Why it works |
+|---|---|---|
+| **Traffic** | NO₂ vs citywide median | Vehicles dominate Delhi NO₂; NO₂ is short-lived so a high reading means a *nearby* source |
+| **Industry** | SO₂ vs citywide median | SO₂ comes from sulphur-bearing fuel (coal, kilns); since BS-VI, vehicles emit almost none |
+| **Construction** | PM10 ÷ PM2.5 | Mechanical processes throw coarse particles, combustion makes fine ones |
+
+**A method correction the real data forced — worth knowing for the pitch.**
+The intuitive approach is a twin-peak rush-hour curve. Seven days of hourly NO₂ for a
+central Delhi station shows the opposite: **median 79 µg/m³ at midnight, 27 by late
+morning — the peak is at night**, when nobody commutes. That is the nocturnal boundary
+layer collapsing and concentrating everything, not traffic. A rush-versus-quiet ratio
+would largely have measured the weather.
+
+So normalisation is **spatial, at a single instant**: each station against the
+citywide median *at the same moment*. All stations share the same mixing height then,
+so meteorology cancels and local emission strength remains. Two consequences: the
+method is sounder, and it needs **no history at all** — fingerprinting 59 stations
+takes **0.00 s** instead of the 80 s a per-station baseline fetch required.
+
+**One integration trap, caught before it shipped.** Run on the raw feed, the engine
+reported the known-broken station as *"NO₂ 5.11× the Delhi median"* and a
+*"PM10/PM2.5 ratio of 13.98 — coarse dust dominant"*. A faulty instrument becomes a
+confident false claim about a real neighbourhood, and its values also drag the
+citywide medians every other station is judged against. Fingerprints now run strictly
+on the quality-filtered set, with the requirement documented at the call site.
+
+**Verified across 209 wards:** construction 92 · traffic 46 · industry 30 · **no call
+41**. Those 41 are deliberate — nothing reached "moderate", so we say nothing rather
+than guess. Zero wards retain an impossible PM ratio.
+
+Real examples: *Vishwash Nagar → industry (SO₂ 60 µg/m³, 2.95× median)*;
+*Vikaspuri East → traffic (NO₂ 120 µg/m³, 2.49× median)*; *Dharampura → construction
+(PM10/PM2.5 3.39)*. Every evidence string is a measured number a juror can check.
+
+**Still honestly labelled as indicators, not apportionment** — real apportionment
+needs filter sampling and receptor modelling (PMF/CMB). The module documents each
+signal's limits: NO₂ also comes from gensets, SO₂ is not exclusive to industry, and a
+coarse-heavy mix cannot separate a construction site from an unpaved road.
+
 *(Further entries appended as each objective lands.)*

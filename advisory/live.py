@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+from . import fingerprints as fp
 from . import openaq
 from .health_bands import band_for_aqi
 
@@ -190,7 +191,8 @@ def _interpolate(ward_lat: float, ward_lon: float, scored: list[dict]) -> dict |
         return {"aqi": s["aqi"], "dominant_pollutant": s["dominant_pollutant"],
                 "pollutants": dict(s.get("pollutants") or {}),
                 "nearest_station": s["station"], "nearest_station_km": round(d, 2),
-                "n_stations": 1, "observed_at": s.get("observed_at")}
+                "n_stations": 1, "observed_at": s.get("observed_at"),
+                "fingerprint": s.get("fingerprint")}
 
     wsum = 0.0
     aqi_acc = 0.0
@@ -213,7 +215,8 @@ def _interpolate(ward_lat: float, ward_lon: float, scored: list[dict]) -> dict |
             "nearest_station": near[0][1]["station"],
             "nearest_station_km": round(near[0][0], 2),
             "n_stations": len(near),
-            "observed_at": near[0][1].get("observed_at")}
+            "observed_at": near[0][1].get("observed_at"),
+            "fingerprint": near[0][1].get("fingerprint")}
 
 
 _result_cache: tuple[float, dict] | None = None
@@ -256,6 +259,8 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
 
     stations = openaq.live_stations(force=force)
     scored, quality_notes = _scored_stations(stations)
+    # Fingerprints run on the CLEANED set only — see fingerprint_all's docstring.
+    scored = fp.fingerprint_all(scored)
     if not scored:
         return {"available": False,
                 "reason": "no station reported within the freshness window",
@@ -279,6 +284,11 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
             "nearest_station_km": got["nearest_station_km"],
             "n_stations": got["n_stations"],
             "observed_at": got["observed_at"],
+            # Source signature measured at the ward's nearest station. Attached from
+            # that one station rather than blended: a fingerprint is a statement
+            # about a place, and averaging three of them would blur the very local
+            # contrast it exists to detect.
+            "fingerprint": got.get("fingerprint"),
         })
 
     ages = [s.get("age_hours") for s in stations if s.get("age_hours") is not None]

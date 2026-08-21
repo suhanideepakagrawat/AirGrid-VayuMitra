@@ -109,11 +109,13 @@ All numbers from held-out validation ([`data/metrics.json`](data/metrics.json), 
 
 **Spatial estimation** (Leave-One-Station-Out — predict each station's AQI using only the *other* stations):
 
+We evaluated all 66 monitoring stations using exhaustive Leave-One-Station-Out (LOSO) spatial validation.
+
 | Method | RMSE | vs. our model |
 |---|---:|---:|
-| **Our spatial model** | **85.8** | — |
-| IDW interpolation (standard practice) | 93.3 | **+8.0% better** |
-| Nearest station (what a citizen sees today) | 111.9 | **+23.3% better** |
+| **Our spatial model** | **72.8** | — |
+| IDW interpolation (standard practice) | 85.4 | **+14.8% better** |
+| Nearest station (what a citizen sees today) | 100.5 | **+27.5% better** |
 
 **Forecasting** (RMSE vs. persistence — "assume today repeats"):
 

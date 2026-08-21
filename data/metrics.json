@@ -1,27 +1,29 @@
 {
-    "spatial_validation": {
-      "method": "Leave-One-Station-Out (LOSO)",
-      "ml_rmse": 85.78,
-      "idw_baseline_rmse": 93.28,
-      "nearest_station_rmse": 111.85,
-      "improvement_vs_idw_pct": 8.0,
-      "improvement_vs_nearest_pct": 23.3
+  "spatial_validation": {
+    "method": "Leave-One-Station-Out (LOSO)",
+    "stations_evaluated": 66,
+    "total_stations": 66,
+    "ml_rmse": 72.79,
+    "idw_baseline_rmse": 85.39,
+    "nearest_station_rmse": 100.45,
+    "improvement_vs_idw_pct": 14.8,
+    "improvement_vs_nearest_pct": 27.5
+  },
+  "forecast_validation": {
+    "24h": {
+      "model_rmse": 43.0,
+      "persistence_rmse": 41.26,
+      "improvement_pct": -4.22
     },
-    "forecast_validation": {
-      "24h": {
-        "model_rmse": 43.00,
-        "persistence_rmse": 41.26,
-        "improvement_pct": -4.22
-      },
-      "48h": {
-        "model_rmse": 46.59,
-        "persistence_rmse": 47.52,
-        "improvement_pct": 1.96
-      },
-      "72h": {
-        "model_rmse": 48.97,
-        "persistence_rmse": 49.95,
-        "improvement_pct": 1.96
-      }
+    "48h": {
+      "model_rmse": 46.59,
+      "persistence_rmse": 47.52,
+      "improvement_pct": 1.96
+    },
+    "72h": {
+      "model_rmse": 48.97,
+      "persistence_rmse": 49.95,
+      "improvement_pct": 1.96
     }
   }
+}

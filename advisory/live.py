@@ -31,6 +31,7 @@ import datetime as dt
 import math
 
 from . import fingerprints as fp
+from . import fire as fire_mod
 from . import openaq
 from .health_bands import band_for_aqi
 
@@ -306,6 +307,10 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
         # Surfaced rather than hidden: a reader can see exactly which readings we
         # rejected and why, which is the honest way to run a quality filter.
         "quality_filtered": quality_notes,
+        # Regional biomass burning is a CITY-level signal, not a per-ward one: a
+        # plume arriving from 200 km upwind covers the whole of Delhi, so pinning it
+        # to individual wards would invent precision we do not have.
+        "regional_burning": fire_mod.burning_signal(stations),
         "wards": wards,
     }
 

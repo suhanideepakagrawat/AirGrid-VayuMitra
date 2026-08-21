@@ -260,4 +260,40 @@ needs filter sampling and receptor modelling (PMF/CMB). The module documents eac
 signal's limits: NO₂ also comes from gensets, SO₂ is not exclusive to industry, and a
 coarse-heavy mix cannot separate a construction site from an unpaved road.
 
+### B6 · NEW — the fourth source: regional biomass burning (NASA FIRMS)
+**Date:** 22 Aug 2026 · **New file:** `advisory/fire.py`
+
+The frontend advertised four sources; the backend had three. `burning` existed only
+as a TypeScript type. It is now real, and it closes a genuine scientific hole: in
+Oct–Nov, Punjab/Haryana stubble burning can dominate Delhi's PM2.5, and the
+geospatial engine could never see it — it reasons about local land use, so a plume
+from 200 km upwind was silently misattributed to whatever happened to sit nearby.
+
+**Three measured facts, no assumptions:** where fires are burning now (VIIRS 375 m
+detections via FIRMS), how intense they are (fire radiative power in MW), and whether
+the **measured** wind is carrying them here. Wind comes from ~46 real station
+anemometers, not a model — averaged as unit vectors, because naively averaging 350°
+and 10° gives 180°, the exact opposite of the truth.
+
+A fire only counts if it lies within 400 km and its bearing from Delhi is within 45°
+of the wind direction. Fires burning with the wind blowing the other way are somebody
+else's problem that day, and we say so rather than blaming them for a local dust event.
+
+**Verified live:** **10 real detections** in the stubble belt, measured wind 0.3 m/s
+from 178° (southerly). Correct verdict: **`not_transported`** — *"10 fires detected in
+Punjab–Haryana, but the wind (178°) is not carrying them towards Delhi."*
+
+**This is the honest demo, and worth showing deliberately.** Late August is not
+burning season, so the engine reports almost nothing — that is it working, not
+failing. Showing the reasoning ("real fires, wrong wind, therefore not us") is more
+convincing than a suspiciously busy August fire map.
+
+Attached to `/live` as a **city-level** signal, not per-ward: a plume covering all of
+Delhi cannot honestly be pinned to individual wards.
+
+**Limits documented in the module:** satellites see fires, not smoke — whether a plume
+reaches ground level depends on injection height and mixing, which we do not model;
+cloud cover hides fires; and we report transport *plausibility*, never a percentage
+contribution.
+
 *(Further entries appended as each objective lands.)*

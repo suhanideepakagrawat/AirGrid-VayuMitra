@@ -26,7 +26,12 @@ services:
     region: singapore                     # closest to Delhi/Hyderabad judges
     buildCommand: pip install -r requirements-advisory.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    # No healthCheckPath on purpose. Setting one to /health on the free plan made
+    # Render's edge intermittently drop the instance from routing: ~20-37% of
+    # requests came back 404 with `x-render-routing: no-server`, and those never
+    # reached uvicorn at all (the app log shows only the successful ones, with
+    # its own health probes passing every 5s throughout). Clearing it took the
+    # failure rate to 0/50. The dashboard, which never had one, was always clean.
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION

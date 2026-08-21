@@ -11,9 +11,9 @@ where to send inspectors · and what **you** personally should do — in your la
 
 <br/>
 
-[![Live Citizen App](https://img.shields.io/badge/🟢_VayuMitra-Live_Demo-075e54?style=for-the-badge)](https://vayumitra-advisory.onrender.com)
-[![Live Dashboard](https://img.shields.io/badge/🟢_AirGrid-Operator_Dashboard-0a746a?style=for-the-badge)](https://airgrid-dashboard.onrender.com)
-[![API Docs](https://img.shields.io/badge/⚙️_API-Swagger_Docs-475a5c?style=for-the-badge)](https://vayumitra-advisory.onrender.com/docs)
+[![Live Citizen App](https://img.shields.io/badge/🟢_VayuMitra-Live_Demo-075e54?style=for-the-badge)](https://vayumitra-advisory-u007.onrender.com)
+[![Live Dashboard](https://img.shields.io/badge/🟢_AirGrid-Operator_Dashboard-0a746a?style=for-the-badge)](https://airgrid-dashboard-47xp.onrender.com)
+[![API Docs](https://img.shields.io/badge/⚙️_API-Swagger_Docs-475a5c?style=for-the-badge)](https://vayumitra-advisory-u007.onrender.com/docs)
 
 ![Real data](https://img.shields.io/badge/data-REAL_pipeline_output-009966)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
@@ -29,7 +29,7 @@ where to send inspectors · and what **you** personally should do — in your la
 
 ---
 
-> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard.onrender.com)** and click **+24 h / +48 h / +72 h** — every chart, map and ranking re-computes from the real forecasts for **209 named Delhi wards**. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's Features 1–4 working end-to-end, deployed on real data.
+> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard-47xp.onrender.com)** and click **+24 h / +48 h / +72 h** — every chart, map and ranking re-computes from the real forecasts for **209 named Delhi wards**. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory-u007.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's Features 1–4 working end-to-end, deployed on real data.
 
 ---
 
@@ -105,7 +105,7 @@ flowchart LR
 
 ## Validation — measured, not claimed
 
-All numbers from held-out validation ([`data/metrics.json`](data/metrics.json), served live at [`/metrics`](https://vayumitra-advisory.onrender.com/metrics)).
+All numbers from held-out validation ([`data/metrics.json`](data/metrics.json), served live at [`/metrics`](https://vayumitra-advisory-u007.onrender.com/metrics)).
 
 **Spatial estimation** (Leave-One-Station-Out — predict each station's AQI using only the *other* stations):
 

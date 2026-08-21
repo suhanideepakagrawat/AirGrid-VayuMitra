@@ -10,7 +10,7 @@ const RAW_API_URL: string = ((import.meta as any).env?.VITE_API_URL ?? "").trim(
 
 export const API_BASE: string = RAW_API_URL
   ? (/^https?:\/\//.test(RAW_API_URL) ? RAW_API_URL : `https://${RAW_API_URL}`).replace(/\/$/, "")
-  : "https://vayumitra-advisory.onrender.com";
+  : "https://vayumitra-advisory-u007.onrender.com";
 
 export const CITIZEN_APP_URL = API_BASE; // the VayuMitra chat is served at "/"
 

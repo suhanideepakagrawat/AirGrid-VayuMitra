@@ -356,8 +356,8 @@ def compare_endpoint(cities: str | None = Query(default=None)) -> dict:
 # after launch. It is the right trade for a judging window of a few days; for
 # anything longer set KEEPALIVE=0 and warm the URLs by hand before a demo.
 # ---------------------------------------------------------------------------
-_KEEPALIVE_DEFAULT = ("https://vayumitra-advisory.onrender.com/health,"
-                      "https://airgrid-dashboard.onrender.com/")
+_KEEPALIVE_DEFAULT = ("https://vayumitra-advisory-u007.onrender.com/health,"
+                      "https://airgrid-dashboard-47xp.onrender.com/")
 
 
 def _keepalive_urls() -> list[str]:

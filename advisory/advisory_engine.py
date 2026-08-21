@@ -174,7 +174,10 @@ def compose_message(a: dict, persona: Persona) -> str:
                 "3-5 sentences; plain language; cite the AQI number and CPCB band "
                 "once; give concrete actions for THIS person; never diagnose; never "
                 "invent thresholds or numbers beyond the facts given; end with a "
-                "one-line 'health guidance, not a medical diagnosis' style note."
+                "one-line 'health guidance, not a medical diagnosis' style note. "
+                "Write PLAIN TEXT only — no markdown, no asterisks, no bullet "
+                "points, no headings (the text is shown in a chat bubble and read "
+                "aloud by a speech engine)."
             )},
             {"role": "user", "content": facts},
         ],

@@ -1,26 +1,46 @@
-# One-click deploy of the Citizen Advisory API + demo UI to Render.
-# The service serves BOTH the JSON API and the chat UI at "/".
+# One-click deploy of the whole AirGrid / VayuMitra stack to Render.
 #
-# Deploy:
-#   1. Push this repo to GitHub.
-#   2. Render dashboard -> New -> Blueprint -> pick this repo.
-#   3. Add the GROQ_API_KEY env var in the dashboard (leave blank to run the
-#      deterministic template mode — the demo still works).
+#   Render dashboard -> New -> Blueprint -> pick this repo -> Apply.
+#
+# It creates BOTH services and wires them together automatically:
+#   1. vayumitra-advisory — FastAPI. Serves the team API (/api/v1/*), the
+#      advisory API (/advisory /chat /compare /sources /tts /wards /locate
+#      /deployment /enforcement/top /metrics /meta) and the VayuMitra citizen
+#      chat UI at "/" and "/citizen".
+#   2. airgrid-dashboard  — the TanStack Start operator dashboard. Its
+#      VITE_API_URL is filled in from service 1 by Render, so there is nothing
+#      to paste by hand.
+#
+# Only the secret keys need typing (marked `sync: false`). Every one of them is
+# OPTIONAL: with no keys the advisory still answers using deterministic CPCB
+# templates + the Hindi phrase table, and voice falls back to the browser.
+#
+# NOTE: *.onrender.com names are globally unique. To keep these exact URLs on a
+# new account, delete the old services from the old account first.
 services:
+  # --------------------------------------------------------------- backend --
   - type: web
     name: vayumitra-advisory
     runtime: python
     plan: free
+    region: singapore                     # closest to Delhi/Hyderabad judges
     buildCommand: pip install -r requirements-advisory.txt
-    startCommand: uvicorn backend.advisory_api:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+      # -- LLM (Groq is OpenAI-compatible). Set the key in the dashboard. ----
+      # Aug 2026: the llama-3.x line was decommissioned by Groq; these are the
+      # current free-tier models. Do not use qwen3.6-27b — it leaks <think>.
       - key: GROQ_API_KEY
-        sync: false                       # set in the Render dashboard, never in git
+        sync: false                       # set in the dashboard, never in git
       - key: GROQ_MODEL
-        value: llama-3.3-70b-versatile
+        value: openai/gpt-oss-120b
       - key: GROQ_FAST_MODEL
-        value: llama-3.1-8b-instant
-      # Voice (optional) — set for a neural voice; omit to use the browser voice.
+        value: openai/gpt-oss-20b
+      # -- Voice (optional). ElevenLabs speaks EN+HI, Deepgram Aura is EN. ---
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVEN_VOICE_ID
@@ -29,5 +49,26 @@ services:
         sync: false
       - key: DEEPGRAM_TTS_MODEL
         value: aura-2-athena-en
-      - key: PYTHON_VERSION
-        value: "3.13"
+
+  # -------------------------------------------------------------- frontend --
+  - type: web
+    name: airgrid-dashboard
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: node .output/server/index.mjs
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: NITRO_PRESET
+        value: node-server
+      # Render substitutes the advisory service's hostname here at deploy time.
+      # api.ts accepts a bare host and prefixes https:// itself.
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: vayumitra-advisory
+          property: host

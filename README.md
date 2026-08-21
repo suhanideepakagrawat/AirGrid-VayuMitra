@@ -20,7 +20,7 @@ where to send inspectors · and what **you** personally should do — in your la
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-dashboard-61DAFB?logo=react&logoColor=black)
 ![XGBoost](https://img.shields.io/badge/XGBoost-3_trained_models-EB5E28)
-![Groq](https://img.shields.io/badge/Llama_3.3-via_Groq-f55036)
+![Groq](https://img.shields.io/badge/gpt--oss--120b-via_Groq-f55036)
 ![Tests](https://img.shields.io/badge/tests-20%2F20_passing-009966)
 
 <sub>ET AI Hackathon 2026 · Problem Statement 5 · Team: Suhani · Parth · Krishna · Bind</sub>
@@ -101,7 +101,7 @@ flowchart LR
     I --> J & K
 ```
 
-**The honest split:** three small numeric models are **trained** (XGBoost — spatial estimation, forecasting, attribution features); language is **called** (Llama-3.3 via Groq, with deterministic fallbacks). Attribution is *directional evidence with confidence scores*, not exact plume physics — and the UI says so.
+**The honest split:** three small numeric models are **trained** (XGBoost — spatial estimation, forecasting, attribution features); language is **called** (gpt-oss-120b via Groq, with deterministic fallbacks). Attribution is *directional evidence with confidence scores*, not exact plume physics — and the UI says so.
 
 ## Validation — measured, not claimed
 
@@ -157,6 +157,25 @@ cd frontend && npm install && npm run dev
 ```
 
 **Tests:** `python tests/test_advisory.py` → 20/20 offline (no keys, no network needed; pass on real and mock data).
+
+## Deploy it
+
+Both services are declared in [`render.yaml`](render.yaml) — **Render → New → Blueprint → pick this repo → Apply** creates them and wires them together (the dashboard's `VITE_API_URL` is filled in from the backend service automatically).
+
+| Service | Runtime | Serves |
+|---|---|---|
+| `vayumitra-advisory` | Python | `/api/v1/*`, the advisory API, and VayuMitra at `/` |
+| `airgrid-dashboard` | Node | the operator dashboard (`rootDir: frontend`) |
+
+Only the secrets need typing, and every one is optional — with no keys the advisory still answers from deterministic CPCB templates and voice falls back to the browser:
+
+- `GROQ_API_KEY` — free at [console.groq.com](https://console.groq.com)
+- `DEEPGRAM_API_KEY` (English voice) · `ELEVENLABS_API_KEY` (English + Hindi voice)
+
+Two things worth knowing:
+
+- **`*.onrender.com` names are globally unique.** To keep these exact URLs on a different account, delete the old services first — otherwise the names are taken and every link above changes.
+- **Free instances sleep after ~15 min idle** (~30–60 s cold start). The in-app keep-alive thread and [`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml) ping both URLs every 10 minutes; set `KEEPALIVE=0` to disable.
 
 ## API at a glance
 

@@ -10,9 +10,39 @@ timeout -> fallback).
 """
 from __future__ import annotations
 
+import re
+
 import requests
 
-from .config import GROQ_URL, compose_model, fast_model, groq_api_key
+from .config import GROQ_URL, compose_model, fast_model, groq_api_key, reasoning_effort
+
+
+_MD_BOLD = re.compile(r"\*{1,3}(.+?)\*{1,3}", re.S)
+_MD_HEAD = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
+_MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.M)
+
+
+def strip_markdown(text: str) -> str:
+    """Flatten markdown to plain text.
+
+    The citizen UI escapes bot text (`esc()` in advisory_demo.html), so an LLM
+    that returns "**not a diagnosis**" would literally show the asterisks — and
+    the TTS voice would read them. gpt-oss reaches for markdown far more than
+    the old llama models did, so every LLM reply is flattened here, centrally.
+    """
+    if not text:
+        return text
+    out = _MD_HEAD.sub("", text)
+    out = _MD_BULLET.sub("", out)
+    out = _MD_BOLD.sub(r"\1", out)
+    out = out.replace("`", "")
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """True for Groq-hosted models that emit billed reasoning tokens."""
+    m = (model or "").lower()
+    return "gpt-oss" in m or "qwen3" in m
 
 
 def available() -> bool:
@@ -45,6 +75,14 @@ def chat(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+
+    # gpt-oss (and qwen3) are REASONING models: hidden reasoning tokens are billed
+    # against max_tokens. Measured on gpt-oss-120b at max_tokens=700 — effort
+    # "medium" burned 698 reasoning tokens and returned an EMPTY message (the
+    # advisory would silently fall back to a template); effort "low" spends ~6 and
+    # answers in full, twice as fast. So we pin "low" for these models.
+    if _is_reasoning_model(mdl):
+        body["reasoning_effort"] = reasoning_effort()
     if json_mode:
         # Provider-enforced valid JSON — the prompt must mention "JSON".
         body["response_format"] = {"type": "json_object"}
@@ -62,7 +100,9 @@ def chat(
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
         if content and str(content).strip():
-            return str(content).strip()
+            text = str(content).strip()
+            # Never touch json_mode payloads — stripping would corrupt the JSON.
+            return text if json_mode else strip_markdown(text)
         return None
     except Exception:
         # Any error (no network, timeout, rate limit, bad key) -> caller falls back.

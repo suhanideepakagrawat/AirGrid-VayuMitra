@@ -3,9 +3,14 @@
 // rendering the bundled sample scene and says so honestly ("sample" badge),
 // so the demo never breaks (RULE 1 of the implementation plan).
 
-export const API_BASE: string =
-  (import.meta as any).env?.VITE_API_URL?.replace(/\/$/, "") ||
-  "https://vayumitra-advisory.onrender.com";
+// Accepts either a full URL ("https://host") or a bare hostname ("host") so a
+// Render blueprint can wire this straight from the sibling service (fromService
+// yields a scheme-less host). Falls back to the public advisory service.
+const RAW_API_URL: string = ((import.meta as any).env?.VITE_API_URL ?? "").trim();
+
+export const API_BASE: string = RAW_API_URL
+  ? (/^https?:\/\//.test(RAW_API_URL) ? RAW_API_URL : `https://${RAW_API_URL}`).replace(/\/$/, "")
+  : "https://vayumitra-advisory.onrender.com";
 
 export const CITIZEN_APP_URL = API_BASE; // the VayuMitra chat is served at "/"
 

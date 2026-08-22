@@ -445,6 +445,69 @@ def _keepalive_urls() -> list[str]:
     return [u.strip() for u in _KEEPALIVE_DEFAULT.split(",") if u.strip()]
 
 
+def _start_forecast_refresh() -> None:
+    """Periodically regenerate the 24/48/72 h forecast from current station data.
+
+    Render's managed Cron Jobs are a PAID feature — creating one on the free plan is
+    rejected outright ("invalid plan: free") — so the schedule lives in the service
+    itself. A cron job also could not have helped here: it runs in its own container
+    with its own filesystem, so it could never update the CSVs this web service
+    reads.
+
+    Run as a SUBPROCESS, deliberately, not inline. The refresh peaks around 266 MB
+    against a 512 MB free instance, and the web app is already holding pandas frames
+    of its own. In-process that is close enough to the ceiling that a bad run could
+    OOM the whole service mid-demo; as a subprocess the worst case is one failed
+    refresh while the API keeps serving. The script is already safe to interrupt — it
+    writes to a .NEW file and only promotes after its sanity gates pass.
+
+    Controls: FORECAST_REFRESH=0 disables; FORECAST_REFRESH_HOURS sets the interval
+    (default 6); the first run waits FORECAST_REFRESH_DELAY_MIN (default 15) so a
+    cold boot serves traffic before doing heavy work.
+    """
+    import os
+    import subprocess
+    import threading
+    import time
+
+    if os.getenv("FORECAST_REFRESH", "1") == "0":
+        return
+    if not live_mod.openaq.available():
+        return                      # no key, nothing to refresh from
+
+    script = _REPO_ROOT / "scripts" / "refresh_forecast.py"
+    if not script.exists():
+        return
+
+    interval = max(1.0, float(os.getenv("FORECAST_REFRESH_HOURS", "6"))) * 3600.0
+    first_delay = max(0.0, float(os.getenv("FORECAST_REFRESH_DELAY_MIN", "15"))) * 60.0
+
+    def _loop() -> None:
+        time.sleep(first_delay)
+        while True:
+            try:
+                proc = subprocess.run(
+                    [sys.executable, str(script), "--promote"],
+                    cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=1800,
+                )
+                if proc.returncode == 0:
+                    # The zone and provenance loaders are lru_cached, so without
+                    # this the service would keep serving July's numbers under a
+                    # freshly-updated timestamp until the next deploy.
+                    from advisory import data as data_mod
+                    data_mod.load_zones.cache_clear()
+                    data_mod.forecast_provenance.cache_clear()
+                    print("[forecast-refresh] promoted a new run", flush=True)
+                else:
+                    print(f"[forecast-refresh] skipped (exit {proc.returncode}); "
+                          f"existing forecast left untouched", flush=True)
+            except Exception as exc:
+                print(f"[forecast-refresh] error: {exc}", flush=True)
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, daemon=True, name="forecast-refresh").start()
+
+
 def _start_live_refresh() -> None:
     """Keep the live-station cache warm in the background.
 
@@ -511,6 +574,7 @@ def create_app() -> FastAPI:
     )
     _start_keepalive()
     _start_live_refresh()
+    _start_forecast_refresh()
     # Demo-friendly CORS. Tighten to the deployed frontend origin in production.
     app.add_middleware(
         CORSMiddleware,

@@ -62,9 +62,26 @@ NEW_FILE = DATA / "future_aqi_forecast_ward.NEW.csv"
 # LIVE_FILE only supplies ward names for the join. Refreshing one without the other
 # leaves every ward AQI on screen stale.
 ATTR_FILE = DATA / "source_attribution.csv"
+# The immutable 1,600-cell / 209-ward grid, extracted once from the original pipeline
+# output. Read the grid from here and never from LIVE_FILE: LIVE_FILE is what this
+# script overwrites, so sourcing the grid from it means any run that loses cells
+# permanently shrinks the grid for every run after it. One thin reporting hour
+# silently took the product from 209 wards to 198 that way.
+GRID_FILE = DATA / "cell_grid.csv"
 
 HISTORY_DAYS = 10
 HORIZONS = [24, 48, 72]
+
+# How far back to look for the best-covered source hour. Wide enough that one thin
+# reporting hour cannot force a low-coverage run, narrow enough to stay current.
+SOURCE_SEARCH_HOURS = 48
+
+# The grid the product states everywhere. Gated against this ABSOLUTE number rather
+# than against the previous run: comparing to "last time" ratchets downward, and a
+# run that quietly shipped 198 wards was accepted precisely because the run before it
+# had already slipped to 198.
+EXPECTED_WARDS = 209
+MIN_WARDS = 205
 
 CITY_LAT, CITY_LON = 28.65, 77.10
 
@@ -125,9 +142,10 @@ def load_cells() -> pd.DataFrame:
     Geography does not change between runs, so there is no reason to recompute the
     grid or redo the ward join; only the *values* are being refreshed.
     """
-    df = pd.read_csv(LIVE_FILE, usecols=["cell_id", "lat", "lon", "nearest_dist_km",
-                                         "is_estimated", "Ward_No", "Ward_Name",
-                                         "distance_to_ward"])
+    src = GRID_FILE if GRID_FILE.exists() else LIVE_FILE
+    df = pd.read_csv(src, usecols=["cell_id", "lat", "lon", "nearest_dist_km",
+                                   "is_estimated", "Ward_No", "Ward_Name",
+                                   "distance_to_ward"])
     cells = df.drop_duplicates("cell_id").reset_index(drop=True)
     log(f"[1/6] {len(cells)} cells loaded from the committed grid")
     return cells
@@ -240,8 +258,19 @@ def fetch_weather(start: dt.datetime, end: dt.datetime) -> pd.DataFrame:
 
 # ─── 4. Spatial estimation: station readings -> every cell ───────────────────
 
-def _nearest_station(cells: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
-    """For each cell, the closest station id and its distance in km."""
+K_NEAREST = 4
+
+
+def _nearest_station(cells: pd.DataFrame, stations: pd.DataFrame,
+                     k: int = 1) -> pd.DataFrame:
+    """For each cell, its k closest stations with distances (rank 0 = nearest).
+
+    k > 1 exists because stations report intermittently. Binding a cell to its single
+    nearest station means that whenever that one instrument misses an hour, the cell
+    has no row at all — which is how a run ended up covering 1,579 of 1,600 cells and
+    dropping eleven wards. With a few candidates we can fall back to the next-nearest
+    station that actually reported.
+    """
     slat = np.radians(stations["lat"].to_numpy())
     slon = np.radians(stations["lon"].to_numpy())
     clat = np.radians(cells["lat"].to_numpy())[:, None]
@@ -249,19 +278,25 @@ def _nearest_station(cells: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFram
     dlat, dlon = slat - clat, slon - clon
     a = np.sin(dlat / 2) ** 2 + np.cos(clat) * np.cos(slat) * np.sin(dlon / 2) ** 2
     dist = 2 * 6371.0 * np.arcsin(np.sqrt(a))
-    idx = dist.argmin(axis=1)
-    return pd.DataFrame({
-        "cell_id": cells["cell_id"].to_numpy(),
-        "proxy_station": stations["station_id"].to_numpy()[idx],
-        "proxy_dist_km": dist[np.arange(len(cells)), idx],
-    })
+    k = min(k, dist.shape[1])
+    order = np.argsort(dist, axis=1)[:, :k]
+    frames = []
+    for rank in range(k):
+        idx = order[:, rank]
+        frames.append(pd.DataFrame({
+            "cell_id": cells["cell_id"].to_numpy(),
+            "proxy_station": stations["station_id"].to_numpy()[idx],
+            "proxy_dist_km": dist[np.arange(len(cells)), idx],
+            "proxy_rank": rank,
+        }))
+    return pd.concat(frames, ignore_index=True)
 
 
 def estimate_cell_aqi(cells: pd.DataFrame, wide: pd.DataFrame,
                       wx: pd.DataFrame) -> pd.DataFrame:
     """Run the trained spatial estimator for every cell at every hour."""
     station_pos = wide[["station_id", "lat", "lon"]].drop_duplicates("station_id")
-    link = _nearest_station(cells, station_pos)
+    link = _nearest_station(cells, station_pos, k=K_NEAREST)
 
     proxy = wide.rename(columns={
         "true_aqi": "proxy_true_aqi", "pm25": "proxy_pm25", "pm10": "proxy_pm10",
@@ -271,6 +306,10 @@ def estimate_cell_aqi(cells: pd.DataFrame, wide: pd.DataFrame,
         "proxy_no2", "proxy_so2", "proxy_o3", "proxy_co"]]
 
     grid = link.merge(proxy, on="proxy_station", how="inner")
+    # One row per cell-hour: keep the closest candidate that actually reported.
+    grid = (grid.sort_values(["cell_id", "timestamp", "proxy_rank"])
+                .drop_duplicates(["cell_id", "timestamp"], keep="first")
+                .drop(columns=["proxy_rank"]))
     grid = grid.merge(cells[["cell_id", "lat", "lon"]], on="cell_id", how="left")
     grid = grid.merge(wx, on="timestamp", how="left")
 
@@ -347,8 +386,18 @@ def run_forecast(cell_hours: pd.DataFrame, cells: pd.DataFrame,
     coverage = lagged.groupby("timestamp")["cell_id"].nunique()
     if coverage.empty:
         raise SystemExit("No cell-hours available — history too short.")
-    threshold = max(1, int(coverage.max() * 0.95))
-    source_ts = coverage[coverage >= threshold].index.max()
+
+    # Prefer FULL coverage over the very latest hour.
+    #
+    # Taking the newest hour above a 95% threshold looked fine in one run and then
+    # quietly shipped 198 wards in the next, because an hour with 1,520 of 1,600
+    # cells clears 95% while losing eleven wards off the map. "209 wards" is a
+    # headline number stated across the product, so it must not wobble run to run
+    # for the sake of a couple of hours' recency. Among the most recent day, take the
+    # best coverage available and break ties by recency.
+    recent = coverage[coverage.index >= coverage.index.max() - pd.Timedelta(hours=SOURCE_SEARCH_HOURS)]
+    best = recent.max()
+    source_ts = recent[recent == best].index.max()
     complete = lagged[(lagged["timestamp"] == source_ts)
                       & lagged["aqi_lag_24h"].notna()]["cell_id"].nunique()
     log(f"[5/6] source hour {source_ts} ({coverage.loc[source_ts]} cells, "
@@ -422,6 +471,10 @@ def validate(new: pd.DataFrame, old: pd.DataFrame) -> list[str]:
         fails.append(f"forecast nearly constant ({new.forecast_aqi.nunique()} values)")
     if new.Ward_Name.isna().mean() > 0.35:
         fails.append(f"{new.Ward_Name.isna().mean():.0%} of rows have no ward")
+    wards_new = new.Ward_Name.nunique()
+    if wards_new < MIN_WARDS:
+        fails.append(f"only {wards_new} wards, expected ~{EXPECTED_WARDS} "
+                     f"(the product states {EXPECTED_WARDS} everywhere)")
     age_h = (dt.datetime.now(dt.timezone.utc)
              - pd.Timestamp(new.source_timestamp.iloc[0]).tz_localize("UTC")
              ).total_seconds() / 3600

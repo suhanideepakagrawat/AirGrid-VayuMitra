@@ -21,7 +21,7 @@ export const METHODS = {
       },
       {
         title: "Fill the gaps",
-        body: "Delhi has ~40 monitors for 1,500 km². A spatial model estimates the air in every 1-km square between them.",
+        body: "Around 60 CPCB, DPCC and IMD monitors report live across 1,500 km². A spatial model estimates the air in every 1-km square between them.",
       },
       {
         title: "Look ahead",

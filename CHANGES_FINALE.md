@@ -343,4 +343,79 @@ stripped, and again client-side under Playwright:**
 | JS console errors | ✅ none |
 | Backend tests | ✅ 20/20 |
 
+### B8 · The forecast is no longer stale — regenerated from live data
+**Date:** 22 Aug 2026 · **New file:** `scripts/refresh_forecast.py`
+
+The served forecast was a single frozen run from **12 July**, 40 days old, presented
+as current. It is now regenerated from today's station readings.
+
+| | Before | After |
+|---|---|---|
+| Issued | 2026-07-12 | **2026-08-22** (~5 h old) |
+| Targets | 13–15 July (all past) | **23–25 Aug** — the finale day is inside the window |
+| Mean AQI | 98.3 | 78.9 |
+| Coverage | 1,600 cells / 209 wards | **identical: 1,600 / 209** |
+
+**This is inference, not retraining.** The same `spatial_estimator` and
+`forecaster_{24,48,72}h` models run unchanged, so the published validation numbers
+still describe the models actually in use.
+
+**Three audit findings made this cheap.** Inference needs only enough history to fill
+the 7-day rolling feature, not the years the training pipeline pulls — so ten days
+suffices. The five land-use features and two satellite features are unused by every
+model (0 splits), so they are passed as NaN, reproducing training conditions exactly.
+And weather was already city-level.
+
+**Three problems found and fixed during the run:**
+
+1. **`XGBRegressor` refuses to construct without scikit-learn**, even for pure
+   inference. Switched to the native `Booster` API — identical predictions, no extra
+   dependency.
+2. **Over-strict source-hour selection cost 16 wards.** Requiring non-null lags
+   dropped 62 cells and took the map from 209 wards to 193 — a visible regression
+   against the "209 wards" stated throughout the product. XGBoost learned default
+   directions for missing values during training, so filtering those rows is stricter
+   than the model ever expected. Now matches `predict_future_aqi.py`, selecting on
+   cell coverage alone: **1,600 cells, 209 wards, zero lost.**
+3. **The refresh initially changed nothing users could see.** `/wards` reads
+   `source_attribution.csv` (`config/city.yaml` → `data_file`), not the forecast file
+   — which only supplies ward names for the join. The metadata would have read
+   "issued 2 hours ago" over July's numbers, which is worse than saying nothing. The
+   promote step now carries the new AQI into that file too (**4,800/4,800 rows**),
+   recomputing `aqi_severity` and the low-AQI branch of `attribution_status`.
+
+**Safety.** Writes to a `.NEW.csv` and never touches live data until seven sanity
+gates pass — coverage collapse, horizon set, implausible mean, NaNs, near-constant
+output, missing wards, and a staleness check on the source hour. `--promote` keeps
+timestamped backups, and the July run also remains recoverable from git
+(`git show HEAD:data/source_attribution.csv`).
+
+**Verified end-to-end:**
+
+| Check | Result |
+|---|---|
+| Forecast provenance | issued 22 Aug, **5 h old**, targets 23–25 Aug |
+| Ward coverage | 209, none lost |
+| Horizon switching in the UI | ✅ **92 / 82 / 86** — genuinely recomputes |
+| Live vs +24 h coherence | 209 wards matched, live mean 78.6 vs 91.7, mean abs diff 22.9 |
+| Ward detail | Narela: live 67, PM2.5 27.4 / PM10 64.1, station 5.47 km |
+| Freshness strip | *"model run 22 Aug 2026 · 5h ago"* |
+| Tests / JS errors / 390 px | 20/20 · none · no overflow |
+
+**Known limitation, stated rather than hidden:** the source-split percentages
+(`dominant_source`, the shares, `confidence`) still come from July's attribution run,
+because regenerating them means re-running the Colab notebook against OSM extracts.
+Local geography dominates that score at low wind, so the ranking is broadly stable,
+but the upwind-corridor component is not refreshed. **The live pollutant fingerprints
+in `advisory/fingerprints.py` are the current source evidence.**
+
+**Re-run before the finale** so the demo shows hours, not days:
+
+    python scripts/refresh_forecast.py --promote
+
+### B9 · Copy corrected — we were understating ourselves
+The landing hero and method panel said Delhi has *"~40 monitors"*. We use **63 live
+stations** today (64 in the training set). Corrected to "60-plus government monitors"
+and "Around 60 CPCB, DPCC and IMD monitors report live".
+
 *(Further entries appended as each objective lands.)*

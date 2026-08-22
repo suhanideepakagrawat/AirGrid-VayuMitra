@@ -81,7 +81,7 @@ function Landing() {
               <span className="text-accent">Ward by ward. Source by source.</span>
             </h1>
             <p className="mt-6 max-w-xl text-base text-text-dim md:text-lg">
-              AirGrid turns the city's ~40 monitors into an intelligence layer:
+              AirGrid turns the city's 60-plus government monitors into an intelligence layer:
               a three-day forecast for every ward, the dominant polluter named with
               evidence and confidence, deployment orders for inspection teams — and
               health advice any family can act on, in English and हिन्दी.

@@ -418,4 +418,53 @@ The landing hero and method panel said Delhi has *"~40 monitors"*. We use **63 l
 stations** today (64 in the training set). Corrected to "60-plus government monitors"
 and "Around 60 CPCB, DPCC and IMD monitors report live".
 
+### B10 · DEPLOYED — everything above is now live
+**Date:** 22 Aug 2026 · `finale/hardening` merged fast-forward into `main` (8 commits)
+
+Pushed to GitHub and redeployed both Render services with a cache clear.
+
+**New env vars set on `vayumitra-advisory`:**
+
+| Key | Value |
+|---|---|
+| `OPENAQ_API_KEY` | (secret) — without it `/live` reports `available:false` |
+| `FIRMS_MAP_KEY` | (secret) — without it regional burning is unavailable |
+| `FORECAST_REFRESH_HOURS` | `6` |
+| `FORECAST_REFRESH_DELAY_MIN` | `15` |
+| `LIVE_REFRESH_SECONDS` | `600` |
+
+**Verified in production, not locally:**
+
+| Check | Result |
+|---|---|
+| Advisory endpoints | **15/15 → 200** |
+| Dashboard routes | **5/5 → 200** |
+| Live layer | **60 stations · 209 wards · 0.69 h old · mean AQI 91.3** |
+| Quality filter | 14 bad readings rejected this cycle |
+| Fingerprints | industry 66 · construction 58 · traffic 41 · **no call 44** |
+| Regional burning | *"1 fire detected in Punjab–Haryana, but the wind (236°) is not carrying them towards Delhi"* |
+| Forecast provenance | issued 22 Aug, **5.2 h old**, targets **23–25 Aug** |
+| Horizon switching | **96 / 100 / 106** — genuinely recomputes |
+| Ward detail | Narela: measured 76, PM2.5 47.1 / PM10 74.1, station 5.47 km |
+| LLM | `llm_used=true`, Hindi, zero markdown |
+| Voice | Hindi via **ElevenLabs** neural |
+| Fabrication scan | **0 fabricated strings across all 5 routes** |
+| Stability | **40/40 on both services** |
+| `/live` latency | 0.2–0.5 s (cache-served) |
+| 390 px / JS errors | no overflow · none |
+
+**Live URLs**
+- Citizen app + API — https://vayumitra-advisory-u007.onrender.com
+- Operator dashboard — https://airgrid-dashboard-47xp.onrender.com
+
+**Two operational notes for the 25th:**
+
+1. **The 6-hour schedule counts uptime, not wall-clock.** It restarts on every deploy
+   or container recycle, so it is really "15 min after boot, then every 6 h".
+2. **Refreshed CSVs are ephemeral.** Render rebuilds the container from git on each
+   deploy, so a redeploy reverts to the committed run and re-refreshes 15 min later.
+   **Run `python scripts/refresh_forecast.py --promote` and commit the result before
+   the finale**, so the deployed container starts from fresh data rather than waiting
+   to earn it.
+
 *(Further entries appended as each objective lands.)*

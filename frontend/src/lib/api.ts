@@ -94,6 +94,9 @@ export type TopTarget = {
   action: string;
   evidence: string;
   rank: number;
+  /** Real MCD ward this target sits in, resolved server-side. */
+  ward_name?: string | null;
+  ward_no?: string | null;
 };
 
 /** Provenance for the forecast layer — lets any screen date its numbers instead of
@@ -124,6 +127,49 @@ export type LiveNowWard = {
   nearest_station_km: number;
   n_stations: number;
   observed_at: string | null;
+  /** Measured source signature at this ward's nearest station. */
+  fingerprint?: Fingerprint;
+};
+
+/** One source signature: a level, the numbers behind it, and a plain-language
+ *  sentence safe to show a citizen. "unknown" when the pollutant wasn't available —
+ *  we say nothing rather than guess. */
+export type SourceSignal = {
+  level: "strong" | "moderate" | "weak" | "unknown";
+  evidence: string;
+  city_ratio?: number | null;
+  ratio?: number | null;
+  no2?: number | null;
+  so2?: number | null;
+  pm10?: number | null;
+  pm25?: number | null;
+};
+
+export type Fingerprint = {
+  observed_hour_ist?: number | null;
+  in_rush_hour?: boolean;
+  normalised_against?: string;
+  traffic: SourceSignal;
+  industry: SourceSignal;
+  construction: SourceSignal;
+  /** null when nothing reached "moderate" — deliberate, not a gap. */
+  dominant: "traffic" | "industry" | "construction" | null;
+};
+
+/** Regional biomass burning is a CITY-level signal: a plume from 200 km upwind
+ *  covers all of Delhi, so it is never pinned to individual wards. */
+export type RegionalBurning = {
+  available: boolean;
+  level?: "none" | "not_transported" | "weak" | "moderate" | "strong";
+  evidence?: string;
+  fires_detected?: number;
+  fires_upwind?: number;
+  total_frp_mw?: number;
+  nearest_upwind_km?: number | null;
+  wind_direction_deg?: number | null;
+  wind_speed_ms?: number | null;
+  source?: string;
+  method?: string;
 };
 
 export type LiveNow = {
@@ -138,6 +184,7 @@ export type LiveNow = {
   stations?: number;
   stations_fetched?: number;
   quality_filtered?: string[];
+  regional_burning?: RegionalBurning;
   wards: LiveNowWard[];
 };
 

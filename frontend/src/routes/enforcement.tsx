@@ -5,8 +5,8 @@ import { AppShell } from "@/components/AppShell";
 import { DelhiWardMap } from "@/components/DelhiWardMap";
 import { MapView } from "@/components/MapView";
 import { MethodPanel } from "@/components/HowItWorks";
-import { aqiCategory, CELLS, ENFORCEMENT_TARGETS, type Cell } from "@/lib/air-data";
-import { deploymentQuery, wardsQuery } from "@/lib/api";
+import { aqiCategory, CELLS, type Cell } from "@/lib/air-data";
+import { deploymentQuery, topTargetsQuery, wardsQuery } from "@/lib/api";
 
 export const Route = createFileRoute("/enforcement")({
   head: () => ({
@@ -25,10 +25,21 @@ function Enforcement() {
   const [showMethod, setShowMethod] = useState(false);
   const [query, setQuery] = useState("");
 
-  const sorted = [...ENFORCEMENT_TARGETS].sort((a, b) => b.priority - a.priority);
-  const [selectedId, setSelectedId] = useState<string>(sorted[0].id);
-  const target = sorted.find((t) => t.id === selectedId)!;
-  const cell: Cell | undefined = CELLS.find((c) => c.id === target.cellId);
+  // Real ranked targets from the pipeline, resolved to their MCD ward.
+  //
+  // This replaces a hardcoded list of invented sites — "Bawana Cluster Kilns · Issue
+  // closure notice, SO2 3.1x limit", "Wazirpur Rolling Mills" — with invented
+  // priorities and invented measurements. They were the visible content of this page
+  // whenever the live query had not resolved, which included every server-rendered
+  // first paint. The pipeline's own targets are less theatrical and entirely
+  // checkable: rank 1 is NANAK PURA, cell 544, traffic, priority 69.8.
+  const tops = useQuery(topTargetsQuery);
+  const sorted = useMemo(() => {
+    const items = tops.data?.available ? tops.data.items : [];
+    return [...items].sort((a, b) => a.rank - b.rank);
+  }, [tops.data]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const target = sorted.find((t) => t.cell_id === selectedId) ?? sorted[0];
 
   // Which teams the plan sends out, and how often — the "one glance" summary.
   const teamMix = useMemo(() => {
@@ -77,10 +88,10 @@ function Enforcement() {
               </div>
             </>
           ) : (
-            <MapView
-              selectedId={cell?.id}
-              layers={{ enforcement: true, windCorridor: true, fires: false }}
-            />
+            // Fallback illustration only, shown while the live ward feed is
+            // unavailable. Nothing is selected in it: the queue beside it is now
+            // driven by real pipeline targets, which have no synthetic-cell twin.
+            <MapView layers={{ enforcement: true, windCorridor: true, fires: false }} />
           )}
         </section>
 
@@ -93,7 +104,7 @@ function Enforcement() {
             <p className="mono mt-1 text-[11px] text-text-mute">
               {live
                 ? `${dep.data.items.length} wards ranked by deployment score (severity × source × persistence)`
-                : `${sorted.length} sample targets · ranked by fused priority score`}
+                : `${sorted.length} pipeline targets · ranked by fused priority score`}
             </p>
             {teamMix.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -217,27 +228,34 @@ function Enforcement() {
           ) : (
             <ul>
               {sorted.map((t) => {
-                const active = t.id === selectedId;
+                const active = t.cell_id === (target?.cell_id ?? -1);
                 return (
-                  <li key={t.id}>
+                  <li key={t.cell_id}>
                     <button
-                      onClick={() => setSelectedId(t.id)}
+                      onClick={() => setSelectedId(t.cell_id)}
                       className={`block w-full border-b border-border px-5 py-4 text-left transition-colors ${
                         active ? "bg-surface-1" : "hover:bg-surface-1/40"
                       }`}
                     >
                       <div className="flex items-baseline justify-between">
                         <span className={`text-sm font-semibold ${active ? "text-accent" : "text-foreground"}`}>
-                          {t.name}
+                          {t.ward_name ?? `Cell ${t.cell_id}`}
                         </span>
-                        <span className="mono text-xs text-accent">P{t.priority}</span>
+                        <span className="mono text-xs text-accent">
+                          P{Math.round(t.max_priority)}
+                        </span>
                       </div>
-                      <div className="mono mt-1 flex gap-3 text-[11px] text-text-mute">
-                        <span>{t.type}</span>
+                      <div className="mono mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-mute">
+                        <span>#{t.rank}</span>
                         <span>·</span>
-                        <span>{t.ward}</span>
+                        <span>{t.dominant_source}</span>
+                        <span>·</span>
+                        <span>AQI {Math.round(t.max_aqi)}</span>
                       </div>
                       <div className="mt-2 text-[12.5px] text-text-dim">{t.action}</div>
+                      {t.evidence && (
+                        <div className="mono mt-1 text-[11px] text-text-mute">{t.evidence}</div>
+                      )}
                     </button>
                   </li>
                 );

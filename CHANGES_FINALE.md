@@ -296,4 +296,51 @@ reaches ground level depends on injection height and mixing, which we do not mod
 cloud cover hides fires; and we report transport *plausibility*, never a percentage
 contribution.
 
+### B7 · Fabrication removed from every page — the frontend now says what we measure
+**Date:** 22 Aug 2026
+
+**Changed:** `lib/air-data.ts`, `lib/api.ts`, `routes/index.tsx`,
+`routes/dashboard.tsx`, `routes/enforcement.tsx`, `routes/health.tsx`,
+`backend/advisory_api.py`
+
+| Was rendering | Now |
+|---|---|
+| *"Peak-hour NO₂ signature… 400 m upwind"* | The real method, plus **live counts**: "46 of 209 wards are showing this signature right now" |
+| *"3 registered brick kilns 6.2 km upwind; SO₂ elevated"* | SO₂ vs the citywide median, measured |
+| *"PM10/PM2.5 ratio ≥ 3.1 with active DPCC permits"* | The measured PM10/PM2.5 ratio — **permits clause gone** |
+| *"MODIS/VIIRS fire detections…"* | Real FIRMS detections with the live transport verdict |
+| **"Registered permits"** evidence badge | Replaced by `SOURCE_BASIS` — what each source genuinely draws on. **No public real-time DPCC permit feed exists**, so nothing could back it |
+| *"Bawana Cluster Kilns · Issue closure notice, SO₂ 3.1× limit"*, *"Wazirpur Rolling Mills"*, *"Narela Phase-III Sites"* | The pipeline's real ranked targets, resolved to MCD wards: **rank 1 NANAK PURA, rank 2 GHAROLI, rank 3 VISHWASH NAGAR** |
+| *"DPS Dwarka — 610 people exposed"*, *"Sanjay Gandhi Memorial — 180"* | 209 real wards ranked by measured risk, with a persona selector |
+
+**Why the enforcement swap mattered more than it looked.** The invented targets were
+not a fallback nobody saw — they were the *visible content* of `/enforcement` on every
+server-rendered first paint, because the live query had not resolved yet. `/enforcement/top`
+now resolves every target to its real ward (**20 of 20 map successfully**).
+
+**The health page rail** was the least defensible thing on the site: real named
+schools and hospitals carrying invented exposure counts, ranked on synthetic AQI. It
+is now real wards, live readings, and the same six personas VayuMitra uses
+(`advisory/personas.py`).
+
+**A bug caught by testing rather than reasoning.** The persona selector initially
+appeared to do nothing. It was not the click handler — guidance collapsed to one
+shared sentence below AQI 100, and Delhi was reading **94** that day. A control that
+visibly does nothing reads as broken, so every persona now gets distinct wording in
+every band. Verified: *child* → "Fine for outdoor play. Prefer parks over roadsides";
+*outdoor worker* → "Safe for a full shift. Keep water handy"; *elderly* → "Good
+conditions for a walk. Early morning is cleanest."
+
+**Verified — fabrication scan across all five routes, server-rendered with scripts
+stripped, and again client-side under Playwright:**
+
+| Route | Result |
+|---|---|
+| `/` `/dashboard` `/attribution` `/enforcement` `/health` | **CLEAN — 0 fabricated strings** |
+| Real enforcement wards rendering | ✅ NANAK PURA, GHAROLI, VISHWASH NAGAR |
+| Persona switching | ✅ changes guidance |
+| 390 px viewport | ✅ no overflow |
+| JS console errors | ✅ none |
+| Backend tests | ✅ 20/20 |
+
 *(Further entries appended as each objective lands.)*

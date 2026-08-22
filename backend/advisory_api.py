@@ -150,10 +150,50 @@ def _csv_records(filename: str, limit: int = 250) -> dict:
         return {"available": False, "items": []}
 
 
+_CELL_WARD_MAP: dict | None = None
+
+
+def _cell_ward_map() -> dict:
+    """cell_id -> {ward_no, ward_name} from the ward-joined pipeline output.
+
+    Cached in a module global rather than with lru_cache, because functools is not
+    imported until further down this file.
+    """
+    global _CELL_WARD_MAP
+    if _CELL_WARD_MAP is not None:
+        return _CELL_WARD_MAP
+    path = _REPO_ROOT / "data" / "future_aqi_forecast_ward.csv"
+    if not path.exists():
+        _CELL_WARD_MAP = {}
+        return _CELL_WARD_MAP
+    try:
+        import pandas as pd
+        df = (pd.read_csv(path, usecols=["cell_id", "Ward_No", "Ward_Name"])
+                .dropna(subset=["Ward_Name"])
+                .drop_duplicates("cell_id"))
+        _CELL_WARD_MAP = {int(r.cell_id): {"ward_no": str(r.Ward_No).replace(".0", ""),
+                                           "ward_name": str(r.Ward_Name)}
+                          for r in df.itertuples()}
+    except Exception:
+        _CELL_WARD_MAP = {}
+    return _CELL_WARD_MAP
+
+
 @router.get("/enforcement/top")
 def enforcement_top() -> dict:
-    """Top-ranked enforcement targets (Feature 3 output, ranked, ~20 rows)."""
+    """Top-ranked enforcement targets (Feature 3 output, ranked, ~20 rows).
+
+    Each target is resolved to its real MCD ward. Without a name a target reads as
+    "cell 544", which is unusable for an inspector and invites the UI to invent a
+    friendlier label — which is exactly how the dashboard ended up displaying
+    made-up sites like "Bawana Cluster Kilns". All 20 rows map successfully.
+    """
     out = _csv_records("top_enforcement_targets.csv", limit=50)
+    wmap = _cell_ward_map()
+    for item in out.get("items", []):
+        info = wmap.get(int(item.get("cell_id", -1)), {})
+        item["ward_name"] = info.get("ward_name")
+        item["ward_no"] = info.get("ward_no")
     return out
 
 

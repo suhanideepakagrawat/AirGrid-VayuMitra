@@ -27,7 +27,6 @@ import {
   SOURCE_COLORS,
   SOURCE_EVIDENCE,
   SOURCE_LABELS,
-  ENFORCEMENT_TARGETS,
   type Cell,
   type Horizon,
   type SourceKey,
@@ -700,7 +699,6 @@ function CellDetail({
   }
   const aqiNow = cellAqi(cell, horizon);
   const values = Object.fromEntries(HORIZONS.map((h) => [h, cellAqi(cell, h)])) as Record<Horizon, number>;
-  const enforcement = ENFORCEMENT_TARGETS.filter((e) => e.cellId === cell.id || e.ward === cell.ward);
   const mix = (Object.keys(SOURCE_LABELS) as SourceKey[]).map((k) => ({
     key: k,
     label: SOURCE_LABELS[k],
@@ -763,24 +761,14 @@ function CellDetail({
       {/* Enforcement / actions */}
       <div className="bg-bg-secondary p-5">
         <div className="mono text-[11px] text-text-mute">Nearby registered sources</div>
-        {enforcement.length ? (
-          <ul className="mt-3 space-y-3">
-            {enforcement.map((e) => (
-              <li key={e.id}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-display text-sm">{e.name}</span>
-                  <span className="mono shrink-0 text-[11px] text-accent">P{e.priority}</span>
-                </div>
-                <div className="mono text-[11px] text-text-mute">{e.type}</div>
-                <div className="mt-1 text-[12px] text-text-dim">{e.action}</div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="mono mt-3 text-[11px] text-text-mute">
-            No registered emission sources within 1.5 km. Attribution driven by regional transport or diffuse activity.
-          </div>
-        )}
+        {/* The named targets that used to render here ("Narela Phase-III Sites",
+            "Bawana Cluster Kilns") were invented, along with their priorities and
+            their claimed measurements. The real ranked queue lives on /enforcement,
+            resolved to actual MCD wards, so this panel points there instead of
+            fabricating a local one for a sample-scene cell. */}
+        <div className="mono mt-3 text-[11px] text-text-mute">
+          Ranked enforcement targets for real wards are on the Enforcement page.
+        </div>
       </div>
     </div>
   );

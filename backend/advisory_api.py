@@ -179,6 +179,40 @@ def _cell_ward_map() -> dict:
     return _CELL_WARD_MAP
 
 
+@router.get("/enforcement/sources")
+def enforcement_sources() -> dict:
+    """Individual physical sources ranked for enforcement dispatch.
+
+    Deliberately ADDED alongside /enforcement/top rather than replacing it: the two
+    answer different questions. /enforcement/top ranks *cells* from the ML pipeline;
+    this ranks the *sources* behind them from Parth's attribution engine — a named
+    road, a specific industrial polygon — each with a ward, coordinates, a team and
+    a concrete action. An inspector can be sent to one of these; nobody can be sent
+    to a grid cell.
+
+    Built offline by scripts/build_enforcement_targets.py. Serving a prebuilt file
+    keeps this endpoint instant and means a failed rebuild leaves the last good list
+    in place rather than emptying the queue.
+    """
+    out = _csv_records("enforcement_targets_v2.csv", limit=100)
+    items = out.get("items", [])
+    return {
+        "available": bool(items),
+        "count": len(items),
+        "generated_at": items[0].get("generated_at") if items else None,
+        "method": ("priority = 50% impact (contribution weighted by how polluted the "
+                   "affected cells already are) + 30% peak severity + 20% reach, "
+                   "ranked within source type"),
+        # Stated on the endpoint, not just in the docs: traffic figures are relative
+        # until the emission factors are replaced, and industry/construction have no
+        # emissions data at all.
+        "caveat": ("Traffic contributions use placeholder emission factors and are "
+                   "relative, not reference-grade. Industry and construction are a "
+                   "presence index, not measured emissions."),
+        "items": items,
+    }
+
+
 @router.get("/enforcement/top")
 def enforcement_top() -> dict:
     """Top-ranked enforcement targets (Feature 3 output, ranked, ~20 rows).

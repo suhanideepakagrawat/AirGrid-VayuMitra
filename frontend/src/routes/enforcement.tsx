@@ -6,7 +6,28 @@ import { DelhiWardMap } from "@/components/DelhiWardMap";
 import { MapView } from "@/components/MapView";
 import { MethodPanel } from "@/components/HowItWorks";
 import { aqiCategory, CELLS, type Cell } from "@/lib/air-data";
-import { deploymentQuery, topTargetsQuery, wardsQuery } from "@/lib/api";
+import {
+  deploymentQuery,
+  enforcementSourcesQuery,
+  topTargetsQuery,
+  wardsQuery,
+} from "@/lib/api";
+
+/** One row of the dispatch queue, normalised so the page renders the same whether
+ *  it is showing ranked sources or the cell-level fallback. */
+type QueueRow = {
+  key: string;
+  rank: number;
+  title: string;
+  ward: string | null;
+  kind: string | null;
+  priority: number;
+  aqi: number;
+  action: string;
+  team: string | null;
+  evidence: string;
+  proxyOnly: boolean;
+};
 
 export const Route = createFileRoute("/enforcement")({
   head: () => ({
@@ -25,21 +46,58 @@ function Enforcement() {
   const [showMethod, setShowMethod] = useState(false);
   const [query, setQuery] = useState("");
 
-  // Real ranked targets from the pipeline, resolved to their MCD ward.
+  // Two queues, and the better one wins.
   //
-  // This replaces a hardcoded list of invented sites — "Bawana Cluster Kilns · Issue
-  // closure notice, SO2 3.1x limit", "Wazirpur Rolling Mills" — with invented
-  // priorities and invented measurements. They were the visible content of this page
-  // whenever the live query had not resolved, which included every server-rendered
-  // first paint. The pipeline's own targets are less theatrical and entirely
-  // checkable: rank 1 is NANAK PURA, cell 544, traffic, priority 69.8.
+  // /enforcement/sources ranks individual physical sources — a named road, a
+  // specific industrial polygon — which is what a team can actually be dispatched
+  // to. /enforcement/top ranks grid cells, which nobody can be sent to, and is kept
+  // only as a fallback so the page still works if the source list is unavailable.
+  const srcQ = useQuery(enforcementSourcesQuery);
   const tops = useQuery(topTargetsQuery);
-  const sorted = useMemo(() => {
+
+  const usingSources = Boolean(srcQ.data?.available && srcQ.data.items.length);
+
+  const sorted: QueueRow[] = useMemo(() => {
+    if (srcQ.data?.available && srcQ.data.items.length) {
+      return [...srcQ.data.items]
+        .sort((a, b) => a.rank - b.rank)
+        .map((s) => ({
+          key: s.source_id,
+          rank: s.rank,
+          title: s.source_name || s.source_id,
+          ward: s.Ward_Name,
+          kind: s.source_type,
+          priority: s.priority,
+          aqi: s.peak_aqi,
+          action: s.action,
+          team: s.recommended_team,
+          evidence: s.evidence,
+          // Traffic uses placeholder emission factors and the proxy types have no
+          // emissions data at all, so the basis travels with the row rather than
+          // being flattened away.
+          proxyOnly: s.basis !== "modelled_pm25_contribution",
+        }));
+    }
     const items = tops.data?.available ? tops.data.items : [];
-    return [...items].sort((a, b) => a.rank - b.rank);
-  }, [tops.data]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const target = sorted.find((t) => t.cell_id === selectedId) ?? sorted[0];
+    return [...items]
+      .sort((a, b) => a.rank - b.rank)
+      .map((t) => ({
+        key: String(t.cell_id),
+        rank: t.rank,
+        title: t.ward_name ?? `Cell ${t.cell_id}`,
+        ward: t.ward_name ?? null,
+        kind: t.dominant_source,
+        priority: t.max_priority,
+        aqi: t.max_aqi,
+        action: t.action,
+        team: null,
+        evidence: t.evidence,
+        proxyOnly: false,
+      }));
+  }, [srcQ.data, tops.data]);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const target = sorted.find((t) => t.key === selectedId) ?? sorted[0];
 
   // Which teams the plan sends out, and how often — the "one glance" summary.
   const teamMix = useMemo(() => {
@@ -104,7 +162,9 @@ function Enforcement() {
             <p className="mono mt-1 text-[11px] text-text-mute">
               {live
                 ? `${dep.data.items.length} wards ranked by deployment score (severity × source × persistence)`
-                : `${sorted.length} pipeline targets · ranked by fused priority score`}
+                : usingSources
+                  ? `${sorted.length} ranked sources · dispatchable targets, not grid cells`
+                  : `${sorted.length} pipeline targets · ranked by fused priority score`}
             </p>
             {teamMix.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -177,6 +237,83 @@ function Enforcement() {
             </div>
           )}
 
+          {/* Two views, both useful, in the order a team would use them.
+              The ranked sources are the tactical list — a specific junction, a
+              specific site, with a team and an action. The ward plan below is the
+              strategic one: which wards to cover. Previously the sources only
+              rendered when the ward plan was unavailable, which meant the more
+              actionable list never appeared at all. */}
+          {usingSources && (
+            <div className="border-b-4 border-border">
+              <div className="flex items-baseline justify-between gap-2 bg-surface-1 px-5 py-2">
+                <span className="mono text-[11px] font-bold text-foreground">
+                  RANKED SOURCES · dispatch first
+                </span>
+                <span className="mono text-[10px] text-text-mute">
+                  {sorted.length} targets
+                </span>
+              </div>
+              <ul>
+                {sorted.map((t) => {
+                  const active = t.key === (target?.key ?? "");
+                  return (
+                    <li key={t.key}>
+                      <button
+                        onClick={() => setSelectedId(t.key)}
+                        className={`block w-full border-b border-border px-5 py-4 text-left transition-colors ${
+                          active ? "bg-surface-1" : "hover:bg-surface-1/40"
+                        }`}
+                      >
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className={`text-sm font-semibold ${active ? "text-accent" : "text-foreground"}`}>
+                            {t.title}
+                          </span>
+                          <span className="mono shrink-0 text-xs text-accent">
+                            P{Math.round(t.priority)}
+                          </span>
+                        </div>
+                        <div className="mono mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-mute">
+                          <span>#{t.rank}</span>
+                          <span>·</span>
+                          <span>{t.kind}</span>
+                          {t.ward && (<><span>·</span><span>{t.ward}</span></>)}
+                          <span>·</span>
+                          <span>AQI {Math.round(t.aqi)}</span>
+                          {t.proxyOnly && (
+                            <>
+                              <span>·</span>
+                              <span title="Presence and proximity, not measured emissions">proxy</span>
+                            </>
+                          )}
+                        </div>
+                        {t.team && (
+                          <div className="mono mt-1 text-[11px] text-accent">{t.team}</div>
+                        )}
+                        <div className="mt-2 text-[12.5px] text-text-dim">{t.action}</div>
+                        {t.evidence && (
+                          <div className="mono mt-1 text-[11px] text-text-mute">{t.evidence}</div>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {srcQ.data?.caveat && (
+                <p className="mono border-b border-border px-5 py-3 text-[11px] text-text-mute">
+                  {srcQ.data.caveat}
+                </p>
+              )}
+            </div>
+          )}
+
+          {live && (
+            <div className="bg-surface-1 px-5 py-2">
+              <span className="mono text-[11px] font-bold text-foreground">
+                WARD DEPLOYMENT PLAN · coverage
+              </span>
+            </div>
+          )}
+
           {live ? (
             <ul>
               {queue.map((w) => {
@@ -225,33 +362,45 @@ function Enforcement() {
                 );
               })}
             </ul>
-          ) : (
+          ) : usingSources ? null : (
             <ul>
               {sorted.map((t) => {
-                const active = t.cell_id === (target?.cell_id ?? -1);
+                const active = t.key === (target?.key ?? "");
                 return (
-                  <li key={t.cell_id}>
+                  <li key={t.key}>
                     <button
-                      onClick={() => setSelectedId(t.cell_id)}
+                      onClick={() => setSelectedId(t.key)}
                       className={`block w-full border-b border-border px-5 py-4 text-left transition-colors ${
                         active ? "bg-surface-1" : "hover:bg-surface-1/40"
                       }`}
                     >
                       <div className="flex items-baseline justify-between">
                         <span className={`text-sm font-semibold ${active ? "text-accent" : "text-foreground"}`}>
-                          {t.ward_name ?? `Cell ${t.cell_id}`}
+                          {t.title}
                         </span>
                         <span className="mono text-xs text-accent">
-                          P{Math.round(t.max_priority)}
+                          P{Math.round(t.priority)}
                         </span>
                       </div>
                       <div className="mono mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-mute">
                         <span>#{t.rank}</span>
                         <span>·</span>
-                        <span>{t.dominant_source}</span>
+                        <span>{t.kind}</span>
+                        {t.ward && (<><span>·</span><span>{t.ward}</span></>)}
                         <span>·</span>
-                        <span>AQI {Math.round(t.max_aqi)}</span>
+                        <span>AQI {Math.round(t.aqi)}</span>
+                        {t.proxyOnly && (
+                          <>
+                            <span>·</span>
+                            <span title="Presence and proximity, not measured emissions">
+                              proxy
+                            </span>
+                          </>
+                        )}
                       </div>
+                      {t.team && (
+                        <div className="mono mt-1 text-[11px] text-accent">{t.team}</div>
+                      )}
                       <div className="mt-2 text-[12.5px] text-text-dim">{t.action}</div>
                       {t.evidence && (
                         <div className="mono mt-1 text-[11px] text-text-mute">{t.evidence}</div>

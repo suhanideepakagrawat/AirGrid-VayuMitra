@@ -188,6 +188,39 @@ export type LiveNow = {
   wards: LiveNowWard[];
 };
 
+/** One physical source ranked for enforcement dispatch — a named road, an
+ *  industrial polygon, a construction site. Distinct from TopTarget, which ranks
+ *  grid cells: this is something a team can actually be sent to. */
+export type EnforcementSource = {
+  rank: number;
+  source_id: string;
+  source_type: string;
+  source_name: string;
+  Ward_Name: string | null;
+  Ward_No: string | null;
+  merged_sources?: number;
+  latitude: number;
+  longitude: number;
+  priority: number;
+  reach: number;
+  peak_aqi: number;
+  confidence: number;
+  /** "modelled_pm25_contribution" or "proxy_influence_index" — never mix them. */
+  basis: string;
+  recommended_team: string;
+  action: string;
+  evidence: string;
+};
+
+export type EnforcementSources = {
+  available: boolean;
+  count: number;
+  generated_at?: string | null;
+  method?: string;
+  caveat?: string;
+  items: EnforcementSource[];
+};
+
 export const fetchHealth = () => get<{ status: string; llm: string; voice: string }>("/health", 5000);
 export const fetchWards = (city?: string) =>
   get<WardsResponse>(`/wards${city ? `?city=${encodeURIComponent(city)}` : ""}`);
@@ -197,6 +230,8 @@ export const fetchDeployment = () =>
 export const fetchTopTargets = () =>
   get<{ available: boolean; items: TopTarget[] }>("/enforcement/top");
 export const fetchLive = () => get<LiveNow>("/live", 12000);
+export const fetchEnforcementSources = () =>
+  get<EnforcementSources>("/enforcement/sources");
 
 // Query configs shared by routes (react-query is already in the root context).
 export const wardsQuery = (city?: string) => ({
@@ -236,6 +271,13 @@ export const topTargetsQuery = {
 
 /** The live layer refreshes server-side every ~10 min, so poll a little faster than
  *  that to keep the "updated Xm ago" badge honest without hammering the API. */
+export const enforcementSourcesQuery = {
+  queryKey: ["enforcementSources"],
+  queryFn: fetchEnforcementSources,
+  staleTime: 10 * 60_000,
+  retry: 1,
+};
+
 export const liveQuery = {
   queryKey: ["live-now"],
   queryFn: fetchLive,

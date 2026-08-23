@@ -467,4 +467,72 @@ Pushed to GitHub and redeployed both Render services with a cache clear.
    the finale**, so the deployed container starts from fresh data rather than waiting
    to earn it.
 
+### B11 · Merged Krishna's retrained models and live pipeline
+**Date:** 23 Aug 2026 · merged `origin/main` (15 commits, no conflicts)
+
+**The spatial estimator is meaningfully better after retraining:**
+
+| | Before | After |
+|---|---|---|
+| LOSO RMSE | 85.78 | **72.79** |
+| IDW baseline | 93.28 | 85.39 |
+| Nearest-station | 111.85 | 100.45 |
+| Improvement vs IDW | +8.0% | **+14.8%** |
+| Improvement vs nearest | +23.3% | **+27.5%** |
+| Stations evaluated | not stated | **66** |
+
+Forecast metrics are unchanged (24 h still −4.22% vs persistence); only the spatial
+estimator was retrained.
+
+**This also strengthens the CAMS benchmark**: our estimator now scores **72.79 against
+Copernicus CAMS's 106.7** on the same Delhi stations — **~32% better**, up from ~20%.
+
+**Verified before merging:**
+- Feature contract unchanged — 26 and 30 features, identical names, so
+  `scripts/refresh_forecast.py` works against the new models untouched.
+- No merge conflicts.
+- His `source_attribution.csv` turned out to be **our own data** — he had merged main
+  into his branch — so nothing of ours was lost; the refresher re-promoted fresher
+  values immediately after.
+- Regenerated with the new model: 1,600 cells, 209 wards, all gates passed.
+- 20/20 tests still green.
+
+**A blocker he fixed in the same push:** an earlier commit had deleted all four model
+files, which would have broken both our refresh pipeline and his own production
+predictor (it loads `models/spatial_estimator.json`). The merge restores them and
+adds the `residual_spatial_model.json` his predictor needs.
+
+**Also merged, not yet wired in:** `fetch_live_station_data.py`,
+`production_spatial_predictor.py` (XGBoost + IDW 60/40 with residual correction and a
+regime safety gate), `run_live_aqi.py`, `update_live_cell_aqi.py`, and ~1,400 lines of
+tests. These overlap with the deployed live layer and are **deliberately not swapped
+in before the finale**.
+
+**Consequence worth acting on afterwards.** The live layer uses IDW rather than the
+trained estimator, justified on two grounds that have both now weakened: the gap was
+8% (now **14.8%**) and xgboost was not a dependency (it now is, for the refresh
+subprocess). It stays on IDW for the finale only because that path is deployed and
+verified. Switching is the first post-finale task.
+
+### B12 · Parth's attribution engine — reviewed, not integrated
+**Date:** 23 Aug 2026 · `Bind's Workspace/Parth's Work/` (local only)
+
+Methodologically the strongest work on the team, and unusually honest: Gaussian
+angular wind alignment, distance decay, dispersion by mixing height, temporal decay —
+closed-form and configurable, no black-box ML. It ranks **individual sources**
+(`ROAD_41`, `INDUSTRY_0`) rather than category percentages, which is far more
+actionable for an inspector. Every emission factor is tagged
+`PLACEHOLDER_NOT_FOR_REPORTING`, and his README states plainly that industry and
+construction "emissions" are a presence index, not a mass rate.
+
+**Not integrable before the finale, for three reasons:**
+
+1. Output covers **64 cells**, not 1,600.
+2. `cell_id` is `NCR_00000` — no join key to our integer grid.
+3. It ran on **synthetic AQI**: median jump between adjacent 1 km cells is **97 AQI**,
+   range 80–413. Real fields are far smoother.
+
+It also needs a HERE key for the traffic half. **This is the roadmap answer** to "how
+would you improve attribution?" — real code, not a promise.
+
 *(Further entries appended as each objective lands.)*

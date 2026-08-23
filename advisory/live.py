@@ -11,11 +11,19 @@ Kept strictly separate from the forecast layer:
 
 WHY INVERSE-DISTANCE WEIGHTING AND NOT THE TRAINED SPATIAL ESTIMATOR
 -------------------------------------------------------------------
-`models/spatial_estimator.json` is the better interpolator, but it needs xgboost,
-which is deliberately not a dependency of the advisory service (see
-requirements-advisory.txt — "no ML libs needed"). Adding it for the live layer would
-add a large wheel to a free-tier build for a modest gain: the model's own
-leave-one-station-out validation puts it at RMSE 85.78 against IDW's 93.28, i.e. ~8%.
+`models/spatial_estimator.json` is the better interpolator. IDW was chosen because
+xgboost was not a dependency of the advisory service and the gap was small: the
+model's leave-one-station-out RMSE was 85.78 against IDW's 93.28, about 8%.
+
+**Both halves of that reasoning have since weakened, and this should be revisited.**
+Krishna retrained the estimator (23 Aug): LOSO RMSE is now **72.79 against IDW's
+85.39 — a 14.8% gap, not 8%**. And xgboost is now installed anyway, for the forecast
+refresh subprocess, so the dependency argument no longer applies either.
+
+It is left on IDW for the finale only because this path is deployed and verified,
+and swapping a working component two days out is the larger risk. Every ward still
+ships `nearest_station_km` and `n_stations` so the uncertainty is visible. Switching
+to the trained estimator is the first thing to do afterwards.
 
 With ~60 live stations spread across Delhi, IDW over the nearest few is a sound,
 transparent choice, and every ward ships `nearest_station_km` and `n_stations` so a

@@ -98,7 +98,11 @@ function Dashboard() {
 
   return (
     <AppShell>
-      <div className="flex h-[calc(100vh-57px)] flex-col">
+      {/* Locked to the viewport only from md up, where the two-pane layout needs a
+          fixed frame. Below that the page scrolls normally: pinning a phone to
+          100vh with overflow-hidden made the ward detail and predictions
+          unreachable — they existed, just below a wall with no scrollbar. */}
+      <div className="flex flex-col md:[@media(min-height:820px)]:h-[calc(100vh-57px)]">
         {/* Provenance first: the live reading and the forecast run are different
             kinds of number, and the page says so before showing either. */}
         <DataFreshness className="mx-4 mt-3" />
@@ -119,7 +123,9 @@ function Dashboard() {
 
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_1fr]">
           {/* Sidebar */}
-          <aside className="hidden overflow-y-auto border-r border-border bg-bg-secondary md:block">
+          {/* Visible on phones as well: hiding the ward list below md removed the
+              only way to find your own ward on the device most judges will use. */}
+          <aside className="order-2 overflow-y-auto border-b border-border bg-bg-secondary md:order-none md:border-b-0 md:border-r">
             <WardFinder
               horizon={horizon}
               liveWards={liveWards}
@@ -187,8 +193,8 @@ function Dashboard() {
           </aside>
 
           {/* Map + detail */}
-          <section className="grid min-h-0 grid-rows-[1fr_auto] overflow-hidden">
-            <div className="relative min-h-[260px] overflow-hidden border-b border-border bg-bg-secondary">
+          <section className="grid min-h-0 grid-rows-[auto_auto] md:grid-rows-[1fr_auto] md:[@media(min-height:820px)]:overflow-hidden">
+            <div className="relative h-[58vh] min-h-[320px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:min-h-[260px]">
               {mapMode === "wards" && liveWards ? (
                 <DelhiWardMap
                   liveWards={liveWards}
@@ -237,7 +243,10 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="max-h-[46vh] overflow-y-auto">
+            {/* Scrolls within itself on desktop; on a phone it simply flows, so
+                nothing is hidden below the fold. 46vh on a short laptop window was
+                barely two rows. */}
+            <div className="md:[@media(min-height:820px)]:max-h-[52vh] md:[@media(min-height:820px)]:overflow-y-auto">
               {active?.kind === "ward" ? (
                 <WardDetail
                   ward={active.ward}
@@ -375,20 +384,31 @@ function WardFinder({
 }) {
   const [query, setQuery] = useState("");
 
+  // Measured-now AQI per ward, so the list shows what the instruments read
+  // alongside what the models predict — not just a city average.
+  const liveQ = useQuery(liveQuery);
+  const liveById = useMemo(() => {
+    const m = new Map<string, number>();
+    if (liveQ.data?.available) {
+      for (const w of liveQ.data.wards) m.set(w.zone_id, w.aqi);
+    }
+    return m;
+  }, [liveQ.data]);
+
   const rows = useMemo(() => {
     if (!liveWards) return null;
     const q = query.trim().toLowerCase();
     const pool = q
       ? liveWards.filter((w) => w.name.toLowerCase().includes(q))
       : [...liveWards].sort((a, b) => wardAqiAt(b, horizon) - wardAqiAt(a, horizon));
-    return pool.slice(0, q ? 10 : 8);
+    return pool.slice(0, q ? 12 : 15);
   }, [liveWards, query, horizon]);
 
   const title = !rows
     ? "Ward feed"
     : query.trim()
-      ? `Matches · ${rows.length}${rows.length === 10 ? "+" : ""}`
-      : `Worst wards · live · +${horizon} h`;
+      ? `Matches · ${rows.length}${rows.length === 12 ? "+" : ""}`
+      : `Worst wards · measured now vs +${horizon} h`;
 
   return (
     <div className="border-b border-border p-4">
@@ -436,12 +456,29 @@ function WardFinder({
                   <span className={`min-w-0 truncate text-[12px] ${isActive ? "font-bold text-accent" : "text-text-dim"}`}>
                     {w.name}
                   </span>
-                  <span
-                    className="mono shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold"
-                    style={{ background: cat.color, color: cat.text }}
-                    title={cat.label}
-                  >
-                    {aqi}
+                  <span className="flex shrink-0 items-center gap-1">
+                    {/* Measured now, then the forecast. Two different kinds of
+                        number, so they are shown as two chips rather than one. */}
+                    {liveById.has(w.zone_id) && (
+                      <span
+                        className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
+                        style={{
+                          background: aqiCategory(liveById.get(w.zone_id)!).color,
+                          color: aqiCategory(liveById.get(w.zone_id)!).text,
+                        }}
+                        title={`Measured now · ${aqiCategory(liveById.get(w.zone_id)!).label}`}
+                      >
+                        {liveById.get(w.zone_id)}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-text-mute" aria-hidden>→</span>
+                    <span
+                      className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
+                      style={{ background: cat.color, color: cat.text }}
+                      title={`Forecast +${horizon}h · ${cat.label}`}
+                    >
+                      {aqi}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -451,7 +488,7 @@ function WardFinder({
       )}
       {rows && (
         <div className="mono mt-2 text-[11px] text-text-mute">
-          Tap a ward — the panel below shows its real forecast.
+          Measured now → forecast +{horizon} h. Tap a ward for the full detail.
         </div>
       )}
     </div>

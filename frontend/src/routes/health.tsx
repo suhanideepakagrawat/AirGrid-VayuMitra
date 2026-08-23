@@ -133,9 +133,11 @@ function Health() {
 
   return (
     <AppShell>
-      <div className="grid h-[calc(100vh-57px)] grid-cols-1 md:grid-cols-[1fr_440px]">
+      {/* Viewport-locked only from md up; a phone scrolls the page so the ward
+          risk list under the assistant is reachable. */}
+      <div className="grid grid-cols-1 md:[@media(min-height:820px)]:h-[calc(100vh-57px)] md:grid-cols-[1fr_440px]">
         {/* VayuMitra — the real deployed citizen product, embedded live */}
-        <section className="relative min-h-0 overflow-hidden border-r border-border bg-surface-1">
+        <section className="relative h-[70vh] min-h-[420px] overflow-hidden border-b border-border bg-surface-1 md:h-auto md:min-h-0 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between border-b border-border bg-panel px-5 py-3">
             <div>
               <h1 className="text-base font-bold">VayuMitra — citizen advisory</h1>
@@ -162,7 +164,7 @@ function Health() {
         </section>
 
         {/* Ward risk for sensitive groups, from live station readings */}
-        <aside className="overflow-y-auto bg-panel">
+        <aside className="bg-panel md:[@media(min-height:820px)]:overflow-y-auto">
           <div className="border-b border-border p-5">
             <div className="chip mb-3">Highest risk right now</div>
             <h2 className="text-lg font-bold">Where sensitive groups are most at risk</h2>

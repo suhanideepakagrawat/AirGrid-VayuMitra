@@ -48,9 +48,10 @@ India's cities *measure* air pollution; they rarely *act* on it in time. Reading
 | # | Feature | What it does | Status |
 |---|---------|--------------|:------:|
 | 1 | **Hyperlocal AQI Forecasting** | 24/48/72-hour AQI per ~1 km cell — XGBoost forecasters + a spatial estimator predict air quality *where there are no sensors* | ✅ **live** |
-| 2 | **Geospatial Source Attribution** | Per cell: traffic vs industry vs construction %, with **confidence scores** and **upwind-corridor evidence** (wind + land use + OSM) | ✅ **live** |
-| 3 | **Enforcement Intelligence** | Severity × attribution × persistence → a **ranked ward-deployment plan** (which team, which ward, in what order) with evidence strings | ✅ **live** |
-| 4 | **Citizen Health Advisory** 🌟 | **VayuMitra** — a multilingual (English/हिन्दी), voice-enabled assistant giving persona-specific advice (child · elderly · asthma · outdoor worker · pregnant), grounded in **CPCB · SAFAR · WHO · GRAP** citations | ✅ **live** |
+| 2 | **Source Attribution** | Per cell: traffic vs industry vs construction vs regional burning, from **two independent lines of evidence** — upwind corridors over 958k mapped road segments and 517 industrial/construction sites, **cross-checked against live pollutant chemistry** (NO₂ → traffic, SO₂ → industry, PM10:PM2.5 → dust) and **NASA satellite fire detections** | ✅ **live** |
+| 3 | **Enforcement Intelligence** | A **ranked ward-deployment plan** *and* the **individual sources** behind it — a named road, a specific industrial site, a junction — each with coordinates, the team to send and the action to take | ✅ **live** |
+| 4 | **Live Air Quality** | Current AQI for all **209 wards**, measured by ~60 real CPCB / DPCC / IMD instruments and refreshed every 10 minutes — kept visibly distinct from the model forecast, each stamped with its own age | ✅ **live** |
+| 5 | **Citizen Health Advisory** 🌟 | **VayuMitra** — a multilingual (English/हिन्दी), voice-enabled assistant giving persona-specific advice (child · elderly · asthma · outdoor worker · pregnant), grounded in **CPCB · SAFAR · WHO · GRAP** citations | ✅ **live** |
 | 5 | **Multi-City Comparison** | Same pipeline, second city (Mumbai) from one config block — band distribution, source mix, modelled intervention impact | ✅ built |
 
 **On real data:** the deployed system serves the actual trained-pipeline output committed in `data/` — **1,600 one-km grid cells × 3 horizons**, aggregated to **209 named Delhi wards** (MCD boundaries), with a ranked deployment plan across all wards. Ask VayuMitra about *Chhawla* or *Narela* — those are real wards with real forecasts. Mumbai remains a labeled sample proving the multi-city architecture.
@@ -101,7 +102,9 @@ flowchart LR
     I --> J & K
 ```
 
-**The honest split:** three small numeric models are **trained** (XGBoost — spatial estimation, forecasting, attribution features); language is **called** (gpt-oss-120b via Groq, with deterministic fallbacks). Attribution is *directional evidence with confidence scores*, not exact plume physics — and the UI says so.
+**Two layers, always distinguishable.** *Live* is what ~60 government instruments read in the last hour, refreshed every 10 minutes. *Forecast* is what our trained models predict for the next 24/48/72 hours, regenerated every 6 hours. Every screen states which it is showing and how old it is.
+
+**The honest split:** four numeric models are **trained** (XGBoost — spatial estimation plus one forecaster per horizon); language is **called** (gpt-oss-120b via Groq, with deterministic fallbacks). Attribution combines geospatial evidence with live pollutant chemistry and reports confidence per cell — directional evidence, not plume physics, and the UI says so.
 
 ## Validation — measured, not claimed
 

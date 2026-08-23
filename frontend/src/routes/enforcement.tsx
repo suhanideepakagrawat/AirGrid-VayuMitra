@@ -127,8 +127,10 @@ function Enforcement() {
 
   return (
     <AppShell>
-      <div className="grid h-[calc(100vh-57px)] grid-cols-1 md:grid-cols-[1fr_500px] xl:grid-cols-[1fr_560px]">
-        <section className="relative min-h-0 overflow-hidden border-r border-border bg-bg-secondary">
+      {/* Viewport-locked only from md up. On a phone the document scrolls, so the
+          dispatch queue below the map is reachable instead of being clipped. */}
+      <div className="grid grid-cols-1 md:[@media(min-height:820px)]:h-[calc(100vh-57px)] md:grid-cols-[1fr_500px] xl:grid-cols-[1fr_560px]">
+        <section className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:min-h-0 md:border-b-0 md:border-r">
           {live && wards.isSuccess ? (
             <>
               <DelhiWardMap
@@ -153,7 +155,7 @@ function Enforcement() {
           )}
         </section>
 
-        <aside className="overflow-y-auto bg-panel">
+        <aside className="bg-panel md:[@media(min-height:820px)]:overflow-y-auto">
           <div className="border-b border-border p-5">
             <div className="chip mb-3">
               {live ? "Ward deployment plan · live pipeline" : "Enforcement queue"}
@@ -256,16 +258,30 @@ function Enforcement() {
               <ul>
                 {sorted.map((t) => {
                   const active = t.key === (target?.key ?? "");
+                  // The queue exists to send people somewhere. The rows that need a
+                  // van today are marked in red rather than left for the reader to
+                  // work out from a priority number: top of the queue, or feeding a
+                  // ward already past the CPCB "Moderate" ceiling.
+                  const urgent = t.rank <= 5 || t.aqi >= 150;
                   return (
                     <li key={t.key}>
                       <button
                         onClick={() => setSelectedId(t.key)}
                         className={`block w-full border-b border-border px-5 py-4 text-left transition-colors ${
-                          active ? "bg-surface-1" : "hover:bg-surface-1/40"
-                        }`}
+                          urgent ? "border-l-4 border-l-[var(--aqi-poor,#ff5a4e)] " : ""
+                        }${active ? "bg-surface-1" : "hover:bg-surface-1/40"}`}
+                        style={urgent && !active ? { background: "color-mix(in srgb, var(--aqi-poor, #ff5a4e) 7%, transparent)" } : undefined}
                       >
                         <div className="flex items-baseline justify-between gap-2">
                           <span className={`text-sm font-semibold ${active ? "text-accent" : "text-foreground"}`}>
+                            {urgent && (
+                              <span
+                                className="mono mr-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold align-middle"
+                                style={{ background: "var(--aqi-poor, #ff5a4e)", color: "#fff" }}
+                              >
+                                DISPATCH
+                              </span>
+                            )}
                             {t.title}
                           </span>
                           <span className="mono shrink-0 text-xs text-accent">
@@ -318,8 +334,17 @@ function Enforcement() {
             <ul>
               {queue.map((w) => {
                 const cat = aqiCategory(w.max_aqi ?? 0);
+                // Same rule as the source queue, so "red" means one thing on this
+                // page: go here first.
+                const urgent = w.rank <= 5 || (w.max_aqi ?? 0) >= 150;
                 return (
-                  <li key={`${w.rank}-${w.ward_no}`} className="border-b border-border px-5 py-4">
+                  <li
+                    key={`${w.rank}-${w.ward_no}`}
+                    className={`border-b border-border px-5 py-4 ${
+                      urgent ? "border-l-4 border-l-[var(--aqi-poor,#ff5a4e)]" : ""
+                    }`}
+                    style={urgent ? { background: "color-mix(in srgb, var(--aqi-poor, #ff5a4e) 7%, transparent)" } : undefined}
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold">
                         <span className="mono mr-2 text-text-mute">#{w.rank}</span>

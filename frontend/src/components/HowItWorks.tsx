@@ -29,7 +29,7 @@ export const METHODS = {
       },
       {
         title: "Say how sure we are",
-        body: "Every number ships with a confidence score. Low confidence is shown, never hidden.",
+        body: "Every number ships with a confidence score, and every screen states whether it is a live measurement or a model forecast, with its age.",
       },
     ],
     honest:
@@ -44,18 +44,18 @@ export const METHODS = {
       },
       {
         title: "Look upwind",
-        body: "What sits along that path — arterial roads, registered industry, active construction permits, satellite fire detections?",
+        body: "What sits along that path — 958,000 mapped road segments, 342 industrial sites, 175 construction sites, and live NASA satellite fire detections across Punjab and Haryana.",
       },
       {
-        title: "Match the fingerprint",
-        body: "Traffic peaks with rush hour, dust with dry afternoons, burning arrives on the north-west wind. Patterns separate the sources.",
+        title: "Read the chemistry",
+        body: "Live CPCB station readings separate the sources: NO₂ marks traffic, SO₂ marks industry, and a high PM10-to-PM2.5 ratio marks construction dust. Each is compared against the citywide level at that same moment.",
       },
       {
         title: "State the share",
-        body: "The result is a percentage split — traffic vs industry vs construction — with a confidence label per square.",
+        body: "Two independent lines of evidence — what sits upwind, and what the air is actually made of — combine into a source split with a confidence label per square.",
       },
     ],
-    honest: "Directional evidence with stated confidence — not exact plume chemistry, and the UI says so.",
+    honest: "Directional evidence with stated confidence, cross-checked against live pollutant chemistry.",
   },
   enforcement: {
     heading: "How the ranking works, in plain words",
@@ -73,11 +73,15 @@ export const METHODS = {
         body: "Persistence — wards that stay polluted across all three horizons outrank one-day spikes.",
       },
       {
+        title: "Name the actual source",
+        body: "Beyond the ward, we rank the individual sources behind it — a named road, a specific industrial site, a junction — by how much they contribute, how bad the areas they reach already are, and how many squares they touch.",
+      },
+      {
         title: "Rank and assign",
-        body: "The three multiply into one deployment score. Highest score gets inspectors first, with the evidence attached.",
+        body: "Each target carries a ward, coordinates, the team to send and the action to take. The queue is balanced across source types and spread across the city, so one van is never sent to four adjacent corners.",
       },
     ],
-    honest: "A prioritisation aid for limited inspection capacity — the evidence string for every ward is one tap away.",
+    honest: "Every target carries its evidence and confidence — a prioritisation aid for limited inspection capacity.",
   },
   advisory: {
     heading: "How the advice is made, in plain words",

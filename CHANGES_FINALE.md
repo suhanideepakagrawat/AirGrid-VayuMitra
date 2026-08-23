@@ -536,3 +536,112 @@ It also needs a HERE key for the traffic half. **This is the roadmap answer** to
 would you improve attribution?" — real code, not a promise.
 
 *(Further entries appended as each objective lands.)*
+
+---
+
+## B13 - Dashboard map sizing and the worst-ward rings (24 Aug 2026)
+
+**Problem.** At 1x zoom the map dominated the dashboard and pushed the ward detail
+below the fold. Capping its height alone made it worse: Delhi is a portrait shape in a
+landscape slot, so the SVG always fits by *height* - a wide, short box just wrapped a
+small map in empty bands.
+
+**Fix - two-pane from `xl` up.** The detail panels move from a row under the map into
+a right rail (460px at `xl`, 680px at `2xl`). Because the map is height-bound at every
+width, width handed to the rail costs the map nothing, and the map gains the full
+column height. Below `xl` the stacked layout is unchanged.
+
+| Viewport | Map before | Map after | Detail panels |
+|---|---|---|---|
+| 1920x1080 | 392x422 | **777x836** | all four on screen |
+| 1440x820 | 283x305 | **535x576** | all four on screen |
+| 1280x720 | 401x431 (page overflowed 13px) | **523x562** | rail scrolls, no overflow |
+| 390x844 | 376x424 | 376x424 | flows, unchanged |
+
+**Four defects found and fixed on the way:**
+
+1. **Horizontal overflow at 1280.** The detail row's fixed track list
+   (`280px 230px minmax(240px,1fr) 280px`) demanded 1030px inside a 1020px column.
+   Removed - in a rail the widths come from the rail.
+2. **Rail clipped mid-panel at 1440.** A compound arbitrary media variant
+   (`md:[@media(min-height:820px)]:max-h-[52vh]`) sorts *after* `xl:` in the generated
+   sheet, so the stacked cap still beat the two-pane cap. Bound it to `max-width:1279px`.
+3. **Map ballooned to 1231px tall** on short-but-wide windows: the 100vh lock is off
+   below 820px height, so the row took its height from the rail's natural content and
+   `h-full` stretched the map to match. Both panes now share an `80vh` cap - inert when
+   the lock is on, decisive when it is off.
+4. **"Construction dust" truncated to "Constru...".** The mix legend used a *viewport*
+   breakpoint (`sm:grid-cols-2`) inside a ~198px panel. Now a container query
+   (`@[248px]:grid-cols-2`), so it goes two-up only when the panel can hold it.
+
+**Also: the "ringed in red" wards were orange.** The stroke read
+`var(--aqi-poor, #ff5a4e)` - but `--aqi-poor` *is* defined (`#ff9933`), so the intended
+red fallback never applied and the rings were near-invisible against yellow wards. Now
+`var(--aqi-very-poor)` (`#cc0033`) at 2.6px. Verified: 10 ringed on `/attribution`,
+worst wards ringed on `/dashboard`, all `rgb(204,0,51)`.
+
+**Verification.** 20/20 tests pass. Frontend builds clean. Seven viewports from
+1920x1080 to 390x844: zero JS errors, zero horizontal overflow, zero clipped text.
+`/`, `/attribution`, `/enforcement`, `/health` all render unchanged.
+
+**Files.** `frontend/src/routes/dashboard.tsx`, `frontend/src/components/DelhiWardMap.tsx`.
+
+---
+
+## B14 - Red means dispatch; the Live API says so; README caught up (24 Aug 2026)
+
+**1. Worst wards are now FILLED red, not outlined.** `urgentIds` on `DelhiWardMap`
+painted a 2.6px stroke; at map scale that read as a hairline. It now paints the ward
+solid `--aqi-very-poor` with a darker `--aqi-severe` edge. This deliberately overrides
+the CPCB band colour, so **both maps carry a legend saying so** - "Worst 10 wards now -
+rank, not band" on the dashboard, "N wards with a ranked source - dispatch first" on
+enforcement. Without that label the map would imply an AQI band it does not mean.
+
+**2. Enforcement is one queue, not two.** Removed `WARD DEPLOYMENT PLAN · coverage`
+and the ward list under it. It ranked *wards*, which nobody can be dispatched to, and
+it duplicated the map beside it. What survives is `RANKED SOURCES · dispatch first` -
+a named junction, a specific site - plus the grid-cell fallback for when the source
+feed is unavailable. Knock-on changes:
+
+- the map now paints the **wards holding a ranked source** and numbers them by
+  dispatch rank (best rank per ward, so two sources never stack on one centroid);
+- search filters the source queue by name, ward or type instead of the ward plan;
+- the team-mix chips are computed from the source queue;
+- `/deployment` is no longer called by this page (the dashboard still uses it);
+- `--aqi-poor` (orange) was replaced by `--aqi-very-poor` throughout, so the DISPATCH
+  tag, the row border and the map now agree on what red means.
+
+**3. The Live API badge is a badge.** It was a grey 11px caption with a 6px dot -
+the single most load-bearing claim on the page, styled as a footnote. It is now a
+solid green pill with a pulsing dot that **links to the running Swagger docs**, so a
+judge can click it and watch the endpoints answer.
+
+**4. README.** Verified all four live links return 200, then corrected what had gone
+stale:
+
+| Was | Now |
+|---|---|
+| "40+ air-quality sensors" | "~60 government air-quality instruments" |
+| two features both numbered 5 | 6 features, and the endpoint table's feature column re-aligned |
+| "18 offline tests" | 20 (matches `pytest`) |
+| `/live` and `/enforcement/sources` undocumented | both in the endpoint table |
+| Feature 3 = "ranked ward-deployment plan" | "20 dispatchable sources", matching the page |
+| screenshots from 21 Jul (old UI) | regenerated 24 Aug, captions rewritten |
+| "❌ no live-API operation" | ✅ the live layer, with the proxy-vs-modelled caveat stated |
+| keys section listed Groq + voice only | `OPENAQ_API_KEY` and `FIRMS_MAP_KEY` documented, with what breaks without them |
+
+**5. `render.yaml` was missing the live-layer keys.** `OPENAQ_API_KEY` and
+`FIRMS_MAP_KEY` were never declared, so a fresh Blueprint deploy would never prompt
+for them and would come up with `/live` reporting `available: false`. Both added as
+`sync: false`. Production was unaffected (they were set by hand) - this was a
+reproducibility bug, found by reading the file rather than by anything failing.
+
+**Verification.** 20/20 tests. Clean build. Five routes × three viewports: zero JS
+errors, zero horizontal overflow, and the removed section absent everywhere. Red fills
+confirmed by computed style: 10 wards on `/dashboard`, 10 on `/attribution`, 15 on
+`/enforcement` (20 sources across 15 wards). Production `/live` checked before the
+push: 63 stations, 209 wards.
+
+**Files.** `README.md`, `render.yaml`, `frontend/src/components/AppShell.tsx`,
+`frontend/src/components/DelhiWardMap.tsx`, `frontend/src/routes/dashboard.tsx`,
+`frontend/src/routes/enforcement.tsx`, `docs/screenshots/*`.

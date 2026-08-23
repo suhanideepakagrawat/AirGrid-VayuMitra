@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { healthQuery } from "@/lib/api";
+import { API_BASE, healthQuery } from "@/lib/api";
 import { VayuMitraDock } from "@/components/VayuMitraDock";
 
 const NAV = [
@@ -46,21 +46,34 @@ export function AppShell({ children, right }: { children: ReactNode; right?: Rea
         </div>
         <div className="flex shrink-0 items-center gap-4">
           {right}
-          <div
-            className="mono flex items-center gap-2 text-[11px] text-text-dim"
-            title={live ? "Backend API connected" : "Backend unreachable - showing bundled sample data"}
+          {/* This is the single most load-bearing claim on the page - that the
+              numbers come off a running API, not a JSON fixture. A grey caption
+              with a 6px dot did not carry that across a room, so it is now a solid
+              badge that links straight to the live Swagger docs: a judge can click
+              it and watch the endpoints answer. */}
+          <a
+            href={`${API_BASE}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            title={
+              live
+                ? `Backend API connected - ${API_BASE} · click for the live endpoint docs`
+                : "Backend unreachable - showing bundled sample data"
+            }
+            className={`mono inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide text-white shadow-sm transition-transform hover:scale-[1.03] ${
+              live ? "bg-[#009966]" : "bg-[#ff9933]"
+            }`}
           >
-            {/* A static dot next to "Live API" looks like a label. A pulsing one
-                reads as a heartbeat, which is what it is. Respects
-                prefers-reduced-motion. */}
-            <span className="relative inline-flex h-1.5 w-1.5" aria-hidden="true">
+            {/* A static dot looks like a label. A pulsing one reads as a heartbeat,
+                which is what it is. Respects prefers-reduced-motion. */}
+            <span className="relative inline-flex h-2 w-2" aria-hidden="true">
               {live && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#009966] opacity-70 motion-reduce:animate-none" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-80 motion-reduce:animate-none" />
               )}
-              <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${live ? "bg-[#009966]" : "bg-[#ff9933]"}`} />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
             </span>
             {live ? "Live API" : "Sample data"}
-          </div>
+          </a>
         </div>
       </header>
       <main className="flex-1">{children}</main>

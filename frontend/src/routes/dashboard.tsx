@@ -234,8 +234,14 @@ function Dashboard() {
           </aside>
 
           {/* Map + detail */}
-          <section className="grid min-h-0 grid-rows-[auto_auto] md:grid-rows-[1fr_auto] md:[@media(min-height:820px)]:overflow-hidden">
-            <div className="relative h-[58vh] min-h-[320px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:min-h-[260px]">
+          <section className="grid min-h-0 grid-rows-[auto_auto] md:grid-rows-[1fr_auto] md:[@media(min-height:820px)]:overflow-hidden xl:grid-cols-[minmax(0,1fr)_460px] xl:grid-rows-1 xl:overflow-hidden 2xl:grid-cols-[minmax(0,1fr)_680px]">
+            {/* Delhi is a PORTRAIT shape in a landscape slot, so the SVG always fits by
+                height and leaves empty bands either side. Stacking the detail row under
+                the map therefore wastes the worst dimension: the map loses height it
+                needs and gains width it cannot use. From 2xl up the detail moves into a
+                right rail instead, which both fills the empty band and roughly doubles
+                the map. Below xl the stacked layout is unchanged. */}
+            <div className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:max-h-[62vh] md:min-h-[320px] xl:h-full xl:max-h-[80vh] xl:min-w-0 xl:border-b-0 xl:border-r">
               {mapMode === "wards" && liveWards ? (
                 <DelhiWardMap
                   liveWards={liveWards}
@@ -283,13 +289,27 @@ function Dashboard() {
                     ? `209 real wards · click any ward · ${isNow(horizon) ? "measured now" : `+${horizon} h · ${HORIZON_LABEL[horizon as Horizon].toLowerCase()}`}`
                     : `Sample evidence scene · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
                 </div>
+                {/* The red fill is a RANK overlay, not a CPCB band - it deliberately
+                    overrides the band colour for the 10 wards at the top of the
+                    queue. Saying so here keeps the map honest at a glance. */}
+                {mapMode === "wards" && liveWards && urgentWardIds.length > 0 && (
+                  <div className="mono flex items-center gap-1.5 text-[11px] text-text-mute">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-[2px]"
+                      style={{ background: "var(--aqi-very-poor)" }}
+                    />
+                    <span>
+                      Worst {urgentWardIds.length} wards {isNow(horizon) ? "now" : `at +${horizon} h`} - rank, not band
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Scrolls within itself on desktop; on a phone it simply flows, so
                 nothing is hidden below the fold. 46vh on a short laptop window was
                 barely two rows. */}
-            <div className="md:[@media(min-height:820px)]:max-h-[52vh] md:[@media(min-height:820px)]:overflow-y-auto">
+            <div className="[@media(min-width:768px)_and_(min-height:820px)_and_(max-width:1279px)]:max-h-[52vh] [@media(min-width:768px)_and_(min-height:820px)_and_(max-width:1279px)]:overflow-y-auto xl:h-full xl:max-h-[80vh] xl:overflow-y-auto xl:bg-bg-secondary xl:[&_.detail-grid>*]:p-3.5 xl:[&_.detail-grid_.mix-legend]:mt-2">
               {active?.kind === "ward" ? (
                 <WardDetail
                   ward={active.ward}
@@ -561,22 +581,27 @@ function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChan
 // Legend rows that cannot overlap: label truncates, value never shrinks.
 function MixLegend({ items }: { items: { key: string; label: string; color: string; pct: number }[] }) {
   return (
-    <div className="mono mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-[11px] sm:grid-cols-2">
+    // Two-up only when the PANEL is wide enough - a viewport breakpoint got this
+    // wrong in the detail rail, where a 1440px screen still leaves each panel under
+    // 200px and clipped "Construction dust" to "Constru...".
+    <div className="mix-legend @container mt-3">
+      <div className="mono grid grid-cols-1 gap-x-6 gap-y-1 text-[11px] @[248px]:grid-cols-2">
       {items.map((m) => (
         <div key={m.key} className="flex items-center justify-between gap-2" title={`${m.label} · ${Math.round(m.pct)}%`}>
           <span className="flex min-w-0 items-center gap-2 text-text-dim">
             <span className="h-1.5 w-1.5 shrink-0" style={{ background: m.color }} />
-            <span className="truncate whitespace-nowrap">{m.label}</span>
+            <span className="min-w-0">{m.label}</span>
           </span>
           <span className="shrink-0 text-foreground">{Math.round(m.pct)}%</span>
         </div>
       ))}
+      </div>
     </div>
   );
 }
 
 const detailGrid =
-  "grid grid-cols-1 gap-px bg-border sm:grid-cols-2 xl:grid-cols-[280px_230px_minmax(240px,1fr)_280px]";
+  "detail-grid grid grid-cols-1 gap-px bg-border sm:grid-cols-2";
 
 /* ------------------------------------------------------------------ */
 /* Ward detail - a REAL ward: live forecast, sources, deployment       */

@@ -54,6 +54,14 @@ services:
         sync: false
       - key: DEEPGRAM_TTS_MODEL
         value: aura-2-athena-en
+      # -- Live data (Feature 4). Without OPENAQ_API_KEY the /live layer reports
+      #    available:false and the UI falls back to the forecast layer, labelled
+      #    as such - the app still runs, it just stops being live. FIRMS adds the
+      #    regional-burning source; absent, the other three are unaffected. -----
+      - key: OPENAQ_API_KEY
+        sync: false                       # free at explore.openaq.org
+      - key: FIRMS_MAP_KEY
+        sync: false                       # free at firms.modaps.eosdis.nasa.gov
       # -- Keep-alive -------------------------------------------------------
       # Free services sleep after ~15 min idle (~30-60s cold start). Warming
       # them costs instance-hours around the clock: two always-on services burn

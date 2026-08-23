@@ -4,7 +4,7 @@
 
 ### Urban Air Quality Intelligence for Smart-City Intervention
 
-**Delhi has 40+ air-quality sensors and no intelligence layer. We built one.**
+**Delhi has ~60 government air-quality instruments and no intelligence layer. We built one.**
 
 *Which source is polluting you right now · what the air will be in 24–72 hours ·
 where to send inspectors · and what **you** personally should do - in your language.*
@@ -29,7 +29,7 @@ where to send inspectors · and what **you** personally should do - in your lang
 
 ---
 
-> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard-47xp.onrender.com)** and click **+24 h / +48 h / +72 h** - every chart, map and ranking re-computes from the real forecasts for **209 named Delhi wards**. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory-u007.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's Features 1–4 working end-to-end, deployed on real data.
+> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard-47xp.onrender.com)** and click **Now / +24 h / +48 h / +72 h** - **Now** is what ~60 government instruments are reading this hour; the rest are our trained forecasts. Every chart, map and ranking re-computes for **209 named Delhi wards**, and the 10 worst are painted red. The green **LIVE API** badge (top-right) links straight to the running **[Swagger docs](https://vayumitra-advisory-u007.onrender.com/docs)** - click it and watch the endpoints answer. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory-u007.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's all six features working end-to-end, deployed on real data.
 
 ---
 
@@ -49,24 +49,24 @@ India's cities *measure* air pollution; they rarely *act* on it in time. Reading
 |---|---------|--------------|:------:|
 | 1 | **Hyperlocal AQI Forecasting** | 24/48/72-hour AQI per ~1 km cell - XGBoost forecasters + a spatial estimator predict air quality *where there are no sensors* | ✅ **live** |
 | 2 | **Source Attribution** | Per cell: traffic vs industry vs construction vs regional burning, from **two independent lines of evidence** - upwind corridors over 958k mapped road segments and 517 industrial/construction sites, **cross-checked against live pollutant chemistry** (NO₂ → traffic, SO₂ → industry, PM10:PM2.5 → dust) and **NASA satellite fire detections** | ✅ **live** |
-| 3 | **Enforcement Intelligence** | A **ranked ward-deployment plan** *and* the **individual sources** behind it - a named road, a specific industrial site, a junction - each with coordinates, the team to send and the action to take | ✅ **live** |
+| 3 | **Enforcement Intelligence** | **20 dispatchable sources** ranked by priority - a named junction, a specific industrial site, a construction site - each with coordinates, the ward it sits in, the team to send, the action to take and the evidence behind it. Rebuilt automatically whenever the forecast refreshes | ✅ **live** |
 | 4 | **Live Air Quality** | Current AQI for all **209 wards**, measured by ~60 real CPCB / DPCC / IMD instruments and refreshed every 10 minutes - kept visibly distinct from the model forecast, each stamped with its own age | ✅ **live** |
 | 5 | **Citizen Health Advisory** 🌟 | **VayuMitra** - a multilingual (English/हिन्दी), voice-enabled assistant giving persona-specific advice (child · elderly · asthma · outdoor worker · pregnant), grounded in **CPCB · SAFAR · WHO · GRAP** citations | ✅ **live** |
-| 5 | **Multi-City Comparison** | Same pipeline, second city (Mumbai) from one config block - band distribution, source mix, modelled intervention impact | ✅ built |
+| 6 | **Multi-City Comparison** | Same pipeline, second city (Mumbai) from one config block - band distribution, source mix, modelled intervention impact | ✅ built |
 
 **On real data:** the deployed system serves the actual trained-pipeline output committed in `data/` - **1,600 one-km grid cells × 3 horizons**, aggregated to **209 named Delhi wards** (MCD boundaries), with a ranked deployment plan across all wards. Ask VayuMitra about *Chhawla* or *Narela* - those are real wards with real forecasts. Mumbai remains a labeled sample proving the multi-city architecture.
 
 ## See it
 
-| Operator dashboard - city pulse + method | Citizen advisory (VayuMitra) |
+| Operator dashboard - 209 real wards, measured now | Citizen advisory (VayuMitra) |
 |:---:|:---:|
 | ![Dashboard](docs/screenshots/dash_02_dashboard.png) | ![VayuMitra](docs/screenshots/02_advisory_sources.png) |
-| *Click a horizon - map, rail and charts re-compute · "how we predict" in plain words* | *Persona-aware, health-band-cited, English + हिन्दी, voice* |
+| *Now / +24 / +48 / +72 - the map, the rail and every chart recompute · the 10 worst wards are painted red · "how is this predicted?" in plain words* | *Persona-aware, health-band-cited, English + हिन्दी, voice* |
 
-| Interactive forecast explorer (209 real wards) | Enforcement - live deployment plan |
+| Source attribution - who is polluting, ward by ward | Enforcement - ranked sources, dispatch first |
 |:---:|:---:|
-| ![Forecast explorer](docs/screenshots/dash_05_forecast_explorer.png) | ![Enforcement](docs/screenshots/dash_04_enforcement.png) |
-| *City trajectory 99 → 95 → 105 · CPCB band census · worst-first ranking* | *Deployment scores, team assignment, "how is this ranked?"* |
+| ![Attribution](docs/screenshots/dash_03_attribution.png) | ![Enforcement](docs/screenshots/dash_04_enforcement.png) |
+| *Citywide mix, source mix by CPCB severity band, and the worst 10 wards ringed against the table* | *20 dispatchable targets - a named junction, a specific site - with the team, the action and the evidence behind each* |
 
 ## How it works
 
@@ -152,7 +152,14 @@ uvicorn backend.main:app --reload --port 8000
 # → http://localhost:8000/docs      (all endpoints)
 ```
 
-Optional `.env` for live LLM + neural voice (copy `.env.example`): `GROQ_API_KEY` (free at console.groq.com), `DEEPGRAM_API_KEY`.
+Optional `.env` (copy `.env.example`) - every key is optional and the app runs without all of them:
+
+| Key | Free from | Unlocks |
+|---|---|---|
+| `OPENAQ_API_KEY` | [explore.openaq.org](https://explore.openaq.org) | the **live layer** - measured AQI, pollutant fingerprints; without it `/live` reports `available: false` and the UI shows the forecast layer, labelled as such |
+| `FIRMS_MAP_KEY` | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/) | regional biomass burning as a fourth source |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | LLM phrasing; without it VayuMitra answers from deterministic CPCB templates |
+| `DEEPGRAM_API_KEY` · `ELEVENLABS_API_KEY` | respective consoles | neural voice; without them the browser's own speech is used |
 
 **Operator dashboard:**
 
@@ -174,6 +181,8 @@ Both services are declared in [`render.yaml`](render.yaml) - **Render → New �
 
 Only the secrets need typing, and every one is optional - with no keys the advisory still answers from deterministic CPCB templates and voice falls back to the browser:
 
+- `OPENAQ_API_KEY` - free at [explore.openaq.org](https://explore.openaq.org). **This is the one that matters**: it powers the live AQI layer, the pollutant fingerprints and the 6-hourly forecast refresh. Without it the app still runs, on the committed forecast, and says so.
+- `FIRMS_MAP_KEY` - free at [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/), for the regional-burning source
 - `GROQ_API_KEY` - free at [console.groq.com](https://console.groq.com)
 - `DEEPGRAM_API_KEY` (English voice) · `ELEVENLABS_API_KEY` (English + Hindi voice)
 
@@ -189,24 +198,28 @@ Two things worth knowing:
 | `GET /api/v1/forecasts` | 1 | 24/48/72h AQI per cell |
 | `GET /api/v1/attribution` | 2 | source %, confidence, evidence |
 | `GET /api/v1/enforcement` | 3 | ranked action list |
+| `GET /live` | 4 | **measured now** - AQI for all 209 wards from ~60 CPCB/DPCC/IMD instruments, with the pollutant fingerprint and regional-burning signal |
 | `GET /wards` | 1+2 | 209 real wards: AQI + band + dominant source |
 | `GET /deployment` | 3 | ranked ward-deployment plan (team + score per ward) |
-| `GET /enforcement/top` | 3 | top-20 enforcement targets with evidence |
-| `GET /advisory` · `POST /chat` | 4 | cited, persona-specific advice (EN/HI) |
-| `GET /tts` | 4 | streamed neural speech |
-| `GET /compare` | 5 | multi-city summary + intervention model |
-| `GET /sources` | 4 | the authority registry (CPCB · SAFAR · WHO · GRAP · NCAP) |
+| `GET /enforcement/top` | 3 | top-20 enforcement targets with evidence (grid cells) |
+| `GET /enforcement/sources` | 3 | **top-20 dispatchable sources** - a named road, a specific site: coordinates, team, action, evidence |
+| `GET /advisory` · `POST /chat` | 5 | cited, persona-specific advice (EN/HI) |
+| `GET /tts` | 5 | streamed neural speech |
+| `GET /compare` | 6 | multi-city summary + intervention model |
+| `GET /sources` | 5 | the authority registry (CPCB · SAFAR · WHO · GRAP · NCAP) |
 | `GET /metrics` | 1 | honest validation numbers (LOSO + vs-persistence) |
-| `GET /locate` | 1+4 | GPS → your actual MCD ward (point-in-polygon on real boundaries) |
+| `GET /locate` | 4+5 | GPS → your actual MCD ward (point-in-polygon on real boundaries) |
 
 ## Repository map
 
 ```
 ├── ml_pipeline/          # Feature 1: data fetch, training, prediction + enforcement scripts
+├── scripts/              # in-service refreshers: forecast regen + enforcement target build
 ├── models/               # trained XGBoost artifacts (24/48/72h + spatial)
 ├── notebooks/            # Feature 2: geospatial source attribution (wind-corridor evidence)
 ├── backend/              # unified FastAPI (api/v1 + advisory + citizen app)
 ├── advisory/             # Feature 4: personas, CPCB bands, sources, LLM, translate, TTS
+│                         #  + live.py, openaq.py, fingerprints.py, fire.py (the live layer)
 ├── compare/              # Feature 5: multi-city aggregation
 ├── frontend/             # React 19 operator dashboard (TanStack Start)
 │   └── advisory_demo.html  # VayuMitra citizen app (self-contained)
@@ -214,15 +227,18 @@ Two things worth knowing:
 ├── data/                 # REAL pipeline output (forecasts, attribution, deployment)
 │   └── mock/             # committed samples - everything still runs with zero data
 ├── PRODUCT.md · DESIGN.md  # our design system ("The Public Health Bulletin")
-└── tests/                # 18 offline tests (pass on real AND mock data)
+└── tests/                # 20 offline tests (pass on real AND mock data)
 ```
 
 ## Honesty notes (what we claim vs. don't)
 
 - ✅ Ward-level estimation, forecasts, and attribution with stated confidence - **directional evidence**, not exact plume modelling.
+- ✅ The live layer is genuinely live: ~60 government instruments polled through OpenAQ, refreshed every 10 minutes, quality-filtered before use, and stamped with its own observation time on every screen.
+- ✅ Forecasts are regenerated **in-service every 6 hours** from that live feed - the deployed numbers are not a committed snapshot from training day.
 - ✅ One city built deep (Delhi); the second city proves the architecture is a config block, not a rebuild.
 - ✅ Language is a called LLM with deterministic fallbacks; it cannot invent health thresholds.
-- ❌ No claim of medical advice, live-API operation at scale, or official government status.
+- ⚠️ Traffic sources carry modelled PM2.5 contributions; industry and construction carry a **proxy influence index** (presence and proximity, not measured emissions). Every row says which basis it used - we never mix the two.
+- ❌ No claim of medical advice, official government status, or a production SLA - the live layer runs on free-tier infrastructure.
 
 ## Team
 

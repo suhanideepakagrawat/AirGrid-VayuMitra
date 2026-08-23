@@ -34,7 +34,9 @@ export function DelhiWardMap({
   /** Measured AQI per ward. When horizon is "now" the map paints these instead of
    *  the forecast, so the control actually changes what the city looks like. */
   liveAqi?: Map<string, number>;
-  /** Wards to ring in red - the ones authorities should go to first. */
+  /** Wards to paint solid red - the ones authorities should go to first. This is a
+   *  RANK overlay, not an AQI band: it deliberately overrides the band colour so a
+   *  dispatch list is readable across a room. Always label it in the legend. */
   urgentIds?: string[];
   selectedId?: string | null;
   /** The user's own ward (from geolocation) - gets a "you are here" pin. */
@@ -59,9 +61,15 @@ export function DelhiWardMap({
   // Zoom: the map renders large on a laptop and swallowed the panel below it.
   // A plain scale on the viewBox keeps every coordinate in map space, so the
   // hover card and badges stay pinned without extra maths.
+  //
+  // At 1x the shape used to run edge to edge, which read as "oversized" and left
+  // the panel below it fighting for room. The viewBox is padded so the default
+  // view has margin around Delhi, and zoom now goes BELOW 1 as well - useful on a
+  // wide monitor where the map would otherwise dominate the column.
   const [zoom, setZoom] = useState(1);
-  const vbW = GEO.w / zoom;
-  const vbH = GEO.h / zoom;
+  const FIT_PAD = 1.14;                     // breathing room at 1x
+  const vbW = (GEO.w * FIT_PAD) / zoom;
+  const vbH = (GEO.h * FIT_PAD) / zoom;
   const vbX = (GEO.w - vbW) / 2;
   const vbY = (GEO.h - vbH) / 2;
 
@@ -83,7 +91,14 @@ export function DelhiWardMap({
   const hoveredShape = hoverId ? GEO.wards.find((s) => s.id === hoverId) : null;
 
   return (
-    <div className={`relative h-full w-full ${className}`}>
+    // The frame takes Delhi's own aspect ratio (980x1052) rather than the full
+    // column width. With preserveAspectRatio the SVG fits by height anyway, so a
+    // full-width box just wrapped the shape in a wide empty band; matching the
+    // aspect keeps the zoom controls and hover cards close to the map they belong to.
+    <div
+      className={`relative mx-auto h-full w-auto max-w-full ${className}`}
+      style={{ aspectRatio: `${GEO.w} / ${GEO.h}` }}
+    >
       <svg
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         preserveAspectRatio="xMidYMid meet"
@@ -100,15 +115,23 @@ export function DelhiWardMap({
             <path
               key={s.id + s.name}
               d={s.d}
-              fill={cat ? cat.color : "var(--surface-2)"}
-              fillOpacity={cat ? (ambient ? 0.5 : isHover || isSel ? 0.95 : 0.72) : 0.45}
+              fill={
+                urgent.has(s.id) ? "var(--aqi-very-poor)"
+                  : cat ? cat.color
+                  : "var(--surface-2)"
+              }
+              fillOpacity={
+                urgent.has(s.id) ? (ambient ? 0.7 : isHover || isSel ? 1 : 0.92)
+                  : cat ? (ambient ? 0.5 : isHover || isSel ? 0.95 : 0.72)
+                  : 0.45
+              }
               stroke={
                 isSel ? "var(--accent)"
-                  : urgent.has(s.id) ? "var(--aqi-poor, #ff5a4e)"
+                  : urgent.has(s.id) ? "var(--aqi-severe)"
                   : isHover ? "var(--accent-dim)"
                   : "var(--panel)"
               }
-              strokeWidth={isSel ? 2.5 : urgent.has(s.id) ? 2.2 : isHover ? 1.8 : 0.7}
+              strokeWidth={isSel ? 2.5 : urgent.has(s.id) ? 2.6 : isHover ? 1.8 : 0.7}
               style={{ transition: "fill 0.3s ease-out, fill-opacity 0.2s ease-out", cursor: !ambient && live && onPick ? "pointer" : "default" }}
               onMouseEnter={() => !ambient && setHoverId(s.id)}
               onMouseLeave={() => !ambient && setHoverId(null)}
@@ -161,21 +184,21 @@ export function DelhiWardMap({
       {!ambient && (
         <div className="absolute bottom-3 right-3 z-10 flex flex-col overflow-hidden rounded-md border border-border bg-panel shadow-[0_2px_8px_rgba(9,20,28,0.12)]">
           <button
-            onClick={() => setZoom((z) => Math.min(4, +(z + 0.4).toFixed(2)))}
+            onClick={() => setZoom((z) => Math.min(4, +(z + (z < 1 ? 0.2 : 0.4)).toFixed(2)))}
             aria-label="Zoom in"
             className="px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground"
           >
             +
           </button>
           <button
-            onClick={() => setZoom((z) => Math.max(1, +(z - 0.4).toFixed(2)))}
+            onClick={() => setZoom((z) => Math.max(0.6, +(z - (z <= 1 ? 0.2 : 0.4)).toFixed(2)))}
             aria-label="Zoom out"
-            disabled={zoom <= 1}
+            disabled={zoom <= 0.6}
             className="border-t border-border px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground disabled:opacity-40"
           >
             &minus;
           </button>
-          {zoom > 1 && (
+          {zoom !== 1 && (
             <button
               onClick={() => setZoom(1)}
               aria-label="Reset zoom"

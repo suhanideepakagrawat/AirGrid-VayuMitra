@@ -7,7 +7,6 @@ import { MapView } from "@/components/MapView";
 import { MethodPanel } from "@/components/HowItWorks";
 import { aqiCategory, CELLS, type Cell } from "@/lib/air-data";
 import {
-  deploymentQuery,
   enforcementSourcesQuery,
   topTargetsQuery,
   wardsQuery,
@@ -20,6 +19,8 @@ type QueueRow = {
   rank: number;
   title: string;
   ward: string | null;
+  /** MCD ward number, so the map can paint the ward this source sits in. */
+  wardNo: string | null;
   kind: string | null;
   priority: number;
   aqi: number;
@@ -40,9 +41,7 @@ export const Route = createFileRoute("/enforcement")({
 });
 
 function Enforcement() {
-  const dep = useQuery(deploymentQuery);
   const wards = useQuery(wardsQuery());
-  const live = dep.isSuccess && dep.data.available && dep.data.items.length > 0;
   const [showMethod, setShowMethod] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -66,6 +65,7 @@ function Enforcement() {
           rank: s.rank,
           title: s.source_name || s.source_id,
           ward: s.Ward_Name,
+          wardNo: s.Ward_No,
           kind: s.source_type,
           priority: s.priority,
           aqi: s.peak_aqi,
@@ -86,6 +86,7 @@ function Enforcement() {
         rank: t.rank,
         title: t.ward_name ?? `Cell ${t.cell_id}`,
         ward: t.ward_name ?? null,
+        wardNo: t.ward_no ?? null,
         kind: t.dominant_source,
         priority: t.max_priority,
         aqi: t.max_aqi,
@@ -99,31 +100,63 @@ function Enforcement() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const target = sorted.find((t) => t.key === selectedId) ?? sorted[0];
 
-  // Which teams the plan sends out, and how often - the "one glance" summary.
+  // Which teams the queue sends out, and how often - the "one glance" summary.
   const teamMix = useMemo(() => {
-    if (!live) return [];
     const counts = new Map<string, number>();
-    for (const w of dep.data!.items) {
-      if (!w.recommended_team) continue;
-      counts.set(w.recommended_team, (counts.get(w.recommended_team) ?? 0) + 1);
+    for (const t of sorted) {
+      if (!t.team) continue;
+      counts.set(t.team, (counts.get(t.team) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [live, dep.data]);
+  }, [sorted]);
 
-  const maxScore = live
-    ? Math.max(...dep.data!.items.map((w) => w.deployment_score ?? 0), 1)
-    : 1;
-
-  // Ward search over the live queue; when a real ward exists but isn't in the
-  // top-30 plan, say so honestly instead of showing an empty list.
+  // Search runs over the dispatch queue itself - by source name, ward or type.
+  // When a real ward exists but has no ranked source, say so rather than showing
+  // an empty list.
   const q = query.trim().toLowerCase();
-  const queue = live
-    ? dep.data!.items.filter((w) => !q || w.ward_name?.toLowerCase().includes(q))
-    : [];
+  const queue = q
+    ? sorted.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          (t.ward ?? "").toLowerCase().includes(q) ||
+          (t.kind ?? "").toLowerCase().includes(q),
+      )
+    : sorted;
   const offQueueMatches =
-    live && q && queue.length === 0 && wards.isSuccess
+    q && queue.length === 0 && wards.isSuccess
       ? wards.data.wards.filter((w) => w.name.toLowerCase().includes(q)).slice(0, 3)
       : [];
+
+  // The wards the ranked sources sit in. These are painted solid red on the map so
+  // "where do we go first" is answerable from across the room - the same red the
+  // DISPATCH rows carry in the list beside it.
+  // One badge per ward, carrying the BEST rank sitting in it - two sources in the
+  // same ward would otherwise stack two numbers on the same centroid.
+  const rankBadges = useMemo(() => {
+    const best = new Map<string, number>();
+    for (const t of sorted) {
+      const n = (t.wardNo ?? "").replace(/\.0$/, "").replace(/ /g, "_");
+      if (!n) continue;
+      const id = `W${n}`;
+      if (!best.has(id) || t.rank < best.get(id)!) best.set(id, t.rank);
+    }
+    return [...best.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, 10)
+      .map(([id, rank]) => ({ id, label: String(rank) }));
+  }, [sorted]);
+
+  const dispatchWardIds = useMemo(
+    () => [
+      ...new Set(
+        sorted
+          .map((t) => (t.wardNo ?? "").replace(/\.0$/, "").replace(/ /g, "_"))
+          .filter(Boolean)
+          .map((n) => `W${n}`),
+      ),
+    ],
+    [sorted],
+  );
 
   return (
     <AppShell>
@@ -131,20 +164,31 @@ function Enforcement() {
           dispatch queue below the map is reachable instead of being clipped. */}
       <div className="grid grid-cols-1 md:h-[calc(100vh-57px)] md:grid-cols-[1fr_500px] xl:grid-cols-[1fr_560px]">
         <section className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:sticky md:top-0 md:h-[calc(100vh-57px)] md:min-h-0 md:border-b-0 md:border-r">
-          {live && wards.isSuccess ? (
+          {sorted.length > 0 && wards.isSuccess ? (
             <>
+              {/* The map answers the same question as the list beside it: where do
+                  we go first. Wards holding a ranked source are painted solid red -
+                  a dispatch overlay, not a CPCB band - and numbered with that
+                  source's rank. */}
               <DelhiWardMap
                 liveWards={wards.data.wards}
                 horizon="24"
+                urgentIds={dispatchWardIds}
                 onPick={(w) => setQuery(w.name)}
-                badges={dep.data!.items.slice(0, 10).map((w) => ({
-                  id: `W${(w.ward_no ?? "").replace(/\.0$/, "").replace(/ /g, "_")}`,
-                  label: String(w.rank),
-                }))}
+                badges={rankBadges}
                 className="p-2"
               />
-              <div className="pointer-events-none absolute left-4 top-4">
-                <div className="chip">Real Delhi wards · numbers = deployment rank · click a ward to find it in the queue</div>
+              <div className="pointer-events-none absolute left-4 top-4 flex flex-col items-start gap-2">
+                <div className="chip">Real Delhi wards · numbers = dispatch rank · click a ward to find it in the queue</div>
+                <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-panel px-2.5 py-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-[2px]"
+                    style={{ background: "var(--aqi-very-poor)" }}
+                  />
+                  <span className="mono text-[11px] text-text-dim">
+                    {dispatchWardIds.length} wards with a ranked source - dispatch first
+                  </span>
+                </div>
               </div>
             </>
           ) : (
@@ -158,15 +202,13 @@ function Enforcement() {
         <aside className="bg-panel md:h-[calc(100vh-57px)] md:overflow-y-auto">
           <div className="border-b border-border p-5">
             <div className="chip mb-3">
-              {live ? "Ward deployment plan · live pipeline" : "Enforcement queue"}
+              {usingSources ? "Ranked sources · live pipeline" : "Enforcement queue"}
             </div>
             <h1 className="text-xl font-bold">Where to send inspectors first</h1>
             <p className="mono mt-1 text-[11px] text-text-mute">
-              {live
-                ? `${dep.data.items.length} wards ranked by deployment score (severity × source × persistence)`
-                : usingSources
-                  ? `${sorted.length} ranked sources · dispatchable targets, not grid cells`
-                  : `${sorted.length} pipeline targets · ranked by fused priority score`}
+              {usingSources
+                ? `${sorted.length} ranked sources across ${dispatchWardIds.length} wards · dispatchable targets, not grid cells`
+                : `${sorted.length} pipeline targets · ranked by fused priority score`}
             </p>
             {teamMix.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -177,15 +219,15 @@ function Enforcement() {
                 ))}
               </div>
             )}
-            {live && (
+            {sorted.length > 0 && (
               <div className="mt-3">
-                <label htmlFor="enf-ward-search" className="sr-only">Search the deployment queue by ward</label>
+                <label htmlFor="enf-ward-search" className="sr-only">Search the dispatch queue by source, ward or type</label>
                 <input
                   id="enf-ward-search"
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a ward in the queue - Chhawla, Bawana…"
+                  placeholder="Find a source, ward or type - Bawana, road, industry…"
                   className="w-full rounded-full border border-border bg-panel px-3.5 py-2 text-[12.5px] text-foreground placeholder:text-text-mute focus:border-accent-dim focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-glow)]"
                 />
               </div>
@@ -208,7 +250,7 @@ function Enforcement() {
             )}
           </div>
 
-          {live && queue.length === 0 && (
+          {q && queue.length === 0 && (
             <div className="border-b border-border px-5 py-4">
               {offQueueMatches.length > 0 ? (
                 <div>
@@ -227,13 +269,14 @@ function Enforcement() {
                     );
                   })}
                   <p className="text-[12.5px] text-text-dim">
-                    Real ward, but not in today's top-30 deployment queue - inspection capacity
-                    goes to worse wards first. See its forecast on the dashboard's ward finder.
+                    Real ward, but no ranked source in it this run - inspection capacity goes to
+                    wards with an identified source first. See its forecast on the dashboard's
+                    ward finder.
                   </p>
                 </div>
               ) : (
                 <p className="mono text-[11px] text-text-mute">
-                  No ward matches “{query.trim()}”.
+                  Nothing in the queue matches “{query.trim()}”.
                 </p>
               )}
             </div>
@@ -268,16 +311,16 @@ function Enforcement() {
                       <button
                         onClick={() => setSelectedId(t.key)}
                         className={`block w-full border-b border-border px-5 py-4 text-left transition-colors ${
-                          urgent ? "border-l-4 border-l-[var(--aqi-poor,#ff5a4e)] " : ""
+                          urgent ? "border-l-4 border-l-[var(--aqi-very-poor)] " : ""
                         }${active ? "bg-surface-1" : "hover:bg-surface-1/40"}`}
-                        style={urgent && !active ? { background: "color-mix(in srgb, var(--aqi-poor, #ff5a4e) 7%, transparent)" } : undefined}
+                        style={urgent && !active ? { background: "color-mix(in srgb, var(--aqi-very-poor) 7%, transparent)" } : undefined}
                       >
                         <div className="flex items-baseline justify-between gap-2">
                           <span className={`text-sm font-semibold ${active ? "text-accent" : "text-foreground"}`}>
                             {urgent && (
                               <span
                                 className="mono mr-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold align-middle"
-                                style={{ background: "var(--aqi-poor, #ff5a4e)", color: "#fff" }}
+                                style={{ background: "var(--aqi-very-poor)", color: "#fff" }}
                               >
                                 DISPATCH
                               </span>
@@ -322,72 +365,11 @@ function Enforcement() {
             </div>
           )}
 
-          {live && (
-            <div className="bg-surface-1 px-5 py-2">
-              <span className="mono text-[11px] font-bold text-foreground">
-                WARD DEPLOYMENT PLAN · coverage
-              </span>
-            </div>
-          )}
-
-          {live ? (
-            <ul>
-              {queue.map((w) => {
-                const cat = aqiCategory(w.max_aqi ?? 0);
-                // Same rule as the source queue, so "red" means one thing on this
-                // page: go here first.
-                const urgent = w.rank <= 5 || (w.max_aqi ?? 0) >= 150;
-                return (
-                  <li
-                    key={`${w.rank}-${w.ward_no}`}
-                    className={`border-b border-border px-5 py-4 ${
-                      urgent ? "border-l-4 border-l-[var(--aqi-poor,#ff5a4e)]" : ""
-                    }`}
-                    style={urgent ? { background: "color-mix(in srgb, var(--aqi-poor, #ff5a4e) 7%, transparent)" } : undefined}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">
-                        <span className="mono mr-2 text-text-mute">#{w.rank}</span>
-                        {w.ward_name}
-                      </span>
-                      <span
-                        className="mono shrink-0 rounded-md px-2 py-0.5 text-[12.5px] font-bold"
-                        style={{ background: cat.color, color: cat.text }}
-                        title={`Peak forecast AQI · ${cat.label}`}
-                      >
-                        {Math.round(w.max_aqi ?? 0)}
-                      </span>
-                    </div>
-                    <div className="mono mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-mute">
-                      <span>Ward {w.ward_no}</span>
-                      <span>·</span>
-                      <span>{w.hotspots} hotspot cells</span>
-                      <span>·</span>
-                      <span>score {Math.round(w.deployment_score ?? 0)}</span>
-                    </div>
-                    <div
-                      className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-1"
-                      role="img"
-                      aria-label={`Deployment score ${Math.round(w.deployment_score ?? 0)} of ${Math.round(maxScore)}`}
-                    >
-                      <div
-                        className="h-full rounded-full bg-accent transition-all duration-300"
-                        style={{ width: `${((w.deployment_score ?? 0) / maxScore) * 100}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-text-dim">
-                      {w.dominant_source && (
-                        <span className="rounded-md bg-surface-1 px-2 py-0.5">{w.dominant_source}</span>
-                      )}
-                      {w.recommended_team && (
-                        <span className="rounded-md bg-surface-1 px-2 py-0.5">→ {w.recommended_team}</span>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : usingSources ? null : (
+          {/* The ward-coverage list is gone: it ranked WARDS, which nobody can be
+              dispatched to, and it duplicated the map. What survives is the
+              source queue above - a named road, a specific site - and this cell
+              fallback for when the source feed is unavailable. */}
+          {!usingSources && (
             <ul>
               {sorted.map((t) => {
                 const active = t.key === (target?.key ?? "");

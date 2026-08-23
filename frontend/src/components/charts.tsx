@@ -1,9 +1,15 @@
 // Chart primitives for the Bulletin system. Flat SVG/DOM, CPCB band colors,
-// tabular figures, hairline structure — no chart library, no gradients.
+// tabular figures, hairline structure - no chart library, no gradients.
 // Every chart re-renders from the active horizon, so switching +24/+48/+72
 // visibly moves every number and bar on the page.
 
-import { aqiCategory, HORIZONS, type Horizon } from "@/lib/air-data";
+import {
+  aqiCategory,
+  HORIZONS,
+  HORIZON_SEL,
+  type Horizon,
+  type HorizonSel,
+} from "@/lib/air-data";
 
 export const HORIZON_LABEL: Record<Horizon, string> = {
   "24": "Tomorrow",
@@ -12,7 +18,7 @@ export const HORIZON_LABEL: Record<Horizon, string> = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Horizon segmented control — THE control of the product              */
+/* Horizon segmented control - THE control of the product              */
 /* ------------------------------------------------------------------ */
 
 export function HorizonSwitch({
@@ -20,8 +26,8 @@ export function HorizonSwitch({
   onChange,
   compact = false,
 }: {
-  value: Horizon;
-  onChange: (h: Horizon) => void;
+  value: HorizonSel;
+  onChange: (h: HorizonSel) => void;
   compact?: boolean;
 }) {
   return (
@@ -30,7 +36,7 @@ export function HorizonSwitch({
       aria-label="Forecast horizon"
       className="inline-flex overflow-hidden rounded-full border border-border bg-panel p-0.5"
     >
-      {HORIZONS.map((h) => {
+      {HORIZON_SEL.map((h) => {
         const active = h === value;
         return (
           <button
@@ -43,11 +49,11 @@ export function HorizonSwitch({
             }`}
           >
             <span className={`mono block font-bold leading-tight ${compact ? "text-[12px]" : "text-[12.5px]"}`}>
-              +{h} h
+              {h === "now" ? "Now" : `+${h} h`}
             </span>
             {!compact && (
               <span className={`block text-[10.5px] leading-tight ${active ? "text-white/85" : "text-text-mute"}`}>
-                {HORIZON_LABEL[h]}
+                {h === "now" ? "Measured" : HORIZON_LABEL[h as Horizon]}
               </span>
             )}
           </button>
@@ -58,7 +64,7 @@ export function HorizonSwitch({
 }
 
 /* ------------------------------------------------------------------ */
-/* AQI indicator — the signature severity carrier                      */
+/* AQI indicator - the signature severity carrier                      */
 /* ------------------------------------------------------------------ */
 
 export function AqiBall({ aqi, size = 64 }: { aqi: number; size?: number }) {
@@ -98,16 +104,18 @@ export function HorizonTriplet({
   onSelect,
   height = 96,
 }: {
-  values: Record<Horizon, number>;
-  active: Horizon;
-  onSelect?: (h: Horizon) => void;
+  values: Partial<Record<HorizonSel, number>>;
+  active: HorizonSel;
+  onSelect?: (h: HorizonSel) => void;
   height?: number;
 }) {
-  const max = Math.max(...HORIZONS.map((h) => values[h]), 1);
+  // Only bars we have a number for. "now" leads when live data is present.
+  const keys = HORIZON_SEL.filter((h) => typeof values[h] === "number");
+  const max = Math.max(...keys.map((h) => values[h] as number), 1);
   return (
     <div className="flex items-end gap-3" style={{ height: height + 38 }}>
-      {HORIZONS.map((h) => {
-        const v = values[h];
+      {keys.map((h) => {
+        const v = values[h] as number;
         const cat = aqiCategory(v);
         const isActive = h === active;
         const barH = Math.max(8, (v / max) * height);
@@ -144,7 +152,7 @@ export function HorizonTriplet({
 }
 
 /* ------------------------------------------------------------------ */
-/* Band distribution — how many wards sit in each CPCB band            */
+/* Band distribution - how many wards sit in each CPCB band            */
 /* ------------------------------------------------------------------ */
 
 const BAND_ORDER = [
@@ -198,7 +206,7 @@ export function BandDistribution({ aqis, caption }: { aqis: number[]; caption?: 
 }
 
 /* ------------------------------------------------------------------ */
-/* Ranked horizontal bars — worst wards first                          */
+/* Ranked horizontal bars - worst wards first                          */
 /* ------------------------------------------------------------------ */
 
 export function RankBars({
@@ -249,36 +257,46 @@ export function RankBars({
 }
 
 /* ------------------------------------------------------------------ */
-/* City trajectory — mean AQI across the three horizons                */
+/* City trajectory - mean AQI across the three horizons                */
 /* ------------------------------------------------------------------ */
 
-export function CityTrend({ values, active }: { values: Record<Horizon, number>; active: Horizon }) {
+export function CityTrend({
+  values,
+  active,
+}: {
+  values: Partial<Record<HorizonSel, number>>;
+  active: HorizonSel;
+}) {
   const W = 260;
   const H = 120;
   const PADX = 26;
   const PADY = 22;
-  const max = Math.max(...HORIZONS.map((h) => values[h]));
-  const min = Math.min(...HORIZONS.map((h) => values[h]));
+  // Only plot the points we actually have. "now" is absent until the live layer
+  // resolves, and drawing it as zero would invent a cliff in the trend line.
+  const keys = HORIZON_SEL.filter((h) => typeof values[h] === "number");
+  const nums = keys.map((h) => values[h] as number);
+  const max = Math.max(...nums, 1);
+  const min = Math.min(...nums, 0);
   const span = Math.max(max - min, 20);
-  const x = (i: number) => PADX + (i / 2) * (W - PADX * 2);
+  const x = (i: number) => PADX + (keys.length > 1 ? i / (keys.length - 1) : 0.5) * (W - PADX * 2);
   const y = (v: number) => H - PADY - ((v - min) / span) * (H - PADY * 2);
-  const pts = HORIZONS.map((h, i) => `${x(i)},${y(values[h])}`).join(" ");
+  const pts = keys.map((h, i) => `${x(i)},${y(values[h] as number)}`).join(" ");
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="City average AQI across horizons">
       <polyline points={pts} fill="none" stroke="var(--accent-dim)" strokeWidth="1.5" />
-      {HORIZONS.map((h, i) => {
-        const v = values[h];
+      {keys.map((h, i) => {
+        const v = values[h] as number;
         const cat = aqiCategory(v);
         const isActive = h === active;
         return (
           <g key={h}>
             <circle cx={x(i)} cy={y(v)} r={isActive ? 6 : 4} fill={cat.color} stroke={isActive ? "var(--accent)" : "var(--panel)"} strokeWidth="1.5" />
             <text x={x(i)} y={y(v) - 10} textAnchor="middle" fontSize="11" fontWeight={isActive ? 700 : 400} fill="var(--text)" className="mono">
-              {v}
+              {Math.round(v)}
             </text>
             <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="10" fill={isActive ? "var(--accent)" : "var(--text-mute)"} fontWeight={isActive ? 700 : 400} className="mono">
-              +{h}h
+              {h === "now" ? "Now" : `+${h}h`}
             </text>
           </g>
         );
@@ -288,7 +306,7 @@ export function CityTrend({ values, active }: { values: Record<Horizon, number>;
 }
 
 /* ------------------------------------------------------------------ */
-/* Change vs tomorrow — the "is it getting better or worse" tag        */
+/* Change vs tomorrow - the "is it getting better or worse" tag        */
 /* ------------------------------------------------------------------ */
 
 export function DeltaTag({ now, base }: { now: number; base: number }) {
@@ -308,7 +326,7 @@ export function DeltaTag({ now, base }: { now: number; base: number }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Source mix — 100% stacked strip + legend                            */
+/* Source mix - 100% stacked strip + legend                            */
 /* ------------------------------------------------------------------ */
 
 export function SourceStrip({

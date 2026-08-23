@@ -99,7 +99,7 @@ export type TopTarget = {
   ward_no?: string | null;
 };
 
-/** Provenance for the forecast layer — lets any screen date its numbers instead of
+/** Provenance for the forecast layer - lets any screen date its numbers instead of
  *  implying they are current. Served on /wards and /meta. */
 export type ForecastRun = {
   available: boolean;
@@ -132,7 +132,7 @@ export type LiveNowWard = {
 };
 
 /** One source signature: a level, the numbers behind it, and a plain-language
- *  sentence safe to show a citizen. "unknown" when the pollutant wasn't available —
+ *  sentence safe to show a citizen. "unknown" when the pollutant wasn't available -
  *  we say nothing rather than guess. */
 export type SourceSignal = {
   level: "strong" | "moderate" | "weak" | "unknown";
@@ -152,7 +152,7 @@ export type Fingerprint = {
   traffic: SourceSignal;
   industry: SourceSignal;
   construction: SourceSignal;
-  /** null when nothing reached "moderate" — deliberate, not a gap. */
+  /** null when nothing reached "moderate" - deliberate, not a gap. */
   dominant: "traffic" | "industry" | "construction" | null;
 };
 
@@ -188,7 +188,7 @@ export type LiveNow = {
   wards: LiveNowWard[];
 };
 
-/** One physical source ranked for enforcement dispatch — a named road, an
+/** One physical source ranked for enforcement dispatch - a named road, an
  *  industrial polygon, a construction site. Distinct from TopTarget, which ranks
  *  grid cells: this is something a team can actually be sent to. */
 export type EnforcementSource = {
@@ -205,7 +205,7 @@ export type EnforcementSource = {
   reach: number;
   peak_aqi: number;
   confidence: number;
-  /** "modelled_pm25_contribution" or "proxy_influence_index" — never mix them. */
+  /** "modelled_pm25_contribution" or "proxy_influence_index" - never mix them. */
   basis: string;
   recommended_team: string;
   action: string;
@@ -286,7 +286,7 @@ export const liveQuery = {
   retry: 1,
 };
 
-/** "3m ago" / "2h ago" / "40d ago" — one shared formatter so every freshness badge
+/** "3m ago" / "2h ago" / "40d ago" - one shared formatter so every freshness badge
  *  in the product reads identically. */
 export function timeAgo(iso?: string | null): string {
   if (!iso) return "unknown";

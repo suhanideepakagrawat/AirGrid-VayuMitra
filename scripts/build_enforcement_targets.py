@@ -1,8 +1,8 @@
-"""Enforcement targeting — which 20 individual sources to send teams to first.
+"""Enforcement targeting - which 20 individual sources to send teams to first.
 
 The previous enforcement output ranked *cells*: "cell 544, traffic, priority 69.8".
-An inspector cannot act on a grid cell. This ranks the actual physical sources —
-a named road, a specific industrial polygon, a construction site — using Parth's
+An inspector cannot act on a grid cell. This ranks the actual physical sources -
+a named road, a specific industrial polygon, a construction site - using Parth's
 source-attribution engine, which computes per-cell contributions for ~200 candidate
 sources each across all 1,600 cells.
 
@@ -16,7 +16,7 @@ A source earns priority three ways, and it needs more than one of them:
     REACH     how many cells it shows up in at all
 
 Weighted 50/30/20. Impact dominates because a strong contribution to one very
-polluted ward matters more than a faint contribution to twenty clean ones — but
+polluted ward matters more than a faint contribution to twenty clean ones - but
 reach is kept because a source touching many wards is a better use of one
 inspection visit.
 
@@ -39,7 +39,7 @@ HONEST LIMITS, carried through from the engine
 ----------------------------------------------
 * Traffic emission factors are placeholders (`PLACEHOLDER_NOT_FOR_REPORTING`).
   Traffic rankings are RELATIVE, not reference-grade PM2.5 mass.
-* Industry and construction have no emissions data at all — presence and proximity
+* Industry and construction have no emissions data at all - presence and proximity
   only.
 * Confidence comes from the engine's wind reliability and sits at 0.30-0.45 here,
   which is low. It is reported, not hidden.
@@ -65,7 +65,7 @@ sys.path.insert(0, str(REPO))
 PARTH = (REPO / "Bind's Workspace" / "Parth's Work" / "source_attribution"
          / "airgrid" / "data" / "outputs")
 ATTRIBUTION = PARTH / "airgrid_attribution.csv"
-HOTSPOTS = PARTH / "source_hotspots.csv"          # ~654 MB — streamed, never loaded whole
+HOTSPOTS = PARTH / "source_hotspots.csv"          # ~654 MB - streamed, never loaded whole
 WARD_MAP = REPO / "data" / "future_aqi_forecast_ward.csv"
 OUT = REPO / "data" / "enforcement_targets_v2.csv"
 
@@ -117,7 +117,7 @@ def load_cell_impacts() -> pd.DataFrame:
         frames.append(part)
     long = pd.concat(frames, ignore_index=True).dropna(subset=["source_id"])
 
-    # One score column. They are NOT interchangeable — `basis` records which, and
+    # One score column. They are NOT interchangeable - `basis` records which, and
     # ranking never mixes them (see module docstring).
     long["score"] = long["contribution"].fillna(long["proxy"])
     long["basis"] = np.where(long["contribution"].notna(),
@@ -161,7 +161,7 @@ def attach_source_details(agg: pd.DataFrame, wanted: set[str]) -> pd.DataFrame:
     a few hundred rows out of millions.
     """
     if not HOTSPOTS.exists():
-        log("[3/4] hotspots file missing — no coordinates or names available")
+        log("[3/4] hotspots file missing - no coordinates or names available")
         return agg
 
     keep = []
@@ -215,20 +215,20 @@ def build_evidence(r: pd.Series) -> str:
                     + (" (placeholder emission factors)"
                        if r.get("placeholder_factors") else ""))
     else:
-        bits.append(f"proxy influence index {r['raw_score']:.1f} — presence, not emissions")
+        bits.append(f"proxy influence index {r['raw_score']:.1f} - presence, not emissions")
     bits.append(f"engine confidence {r['confidence']:.0%}")
     return "; ".join(bits)
 
 
 # Adjacent segments of the same physical thing must not each become a dispatch. The
 # first run produced four separate KARALA junctions and "Delhi-Gurugram Expressway"
-# twice inside one top-20 — four vans to the same corner. Sources of a type are
+# twice inside one top-20 - four vans to the same corner. Sources of a type are
 # clustered onto a ~300 m grid and only the strongest survives, carrying a count of
 # what it absorbed.
 CLUSTER_DEG = 0.003          # ~330 m at Delhi's latitude
 MAX_PER_WARD = 2             # keep the list spread across the city
 
-# Balance the dispatch list across source types. Without this, junctions swamp it —
+# Balance the dispatch list across source types. Without this, junctions swamp it -
 # there are 822,352 intersections against 342 industrial sites, so even after
 # ranking within type the sheer count wins the tie-breaks and 14 of 20 slots go to
 # junctions. A city sends different teams; the queue should reflect that.
@@ -267,7 +267,7 @@ def label(r: pd.Series) -> str:
     if isinstance(name, str) and name.strip():
         return name.strip()
     ward = r.get("Ward_Name")
-    where = f" — {ward}" if isinstance(ward, str) and ward.strip() else ""
+    where = f" - {ward}" if isinstance(ward, str) and ward.strip() else ""
     kind = {"Intersection": "Road junction",
             "Industry": "Industrial site",
             "Construction/Dust": "Construction site",
@@ -287,7 +287,7 @@ def main() -> None:
     long = load_cell_impacts()
     agg = aggregate_sources(long)
 
-    # Detail-lookup only for the shortlist we might emit — a wide margin over --top
+    # Detail-lookup only for the shortlist we might emit - a wide margin over --top
     # so ties and later filtering still have coordinates.
     shortlist = set(agg.head(max(args.top * 40, 800))["source_id"])
     agg = attach_source_details(agg, shortlist)
@@ -310,7 +310,7 @@ def main() -> None:
     top = top[[c for c in cols if c in top.columns]]
     top.to_csv(OUT, index=False)
 
-    log(f"[4/4] wrote {OUT.name} — top {len(top)}")
+    log(f"[4/4] wrote {OUT.name} - top {len(top)}")
     log("")
     log(f"{'#':>2}  {'TYPE':<18} {'WARD':<20} {'PRI':>5}  {'REACH':>5} {'PEAK':>5}  SOURCE")
     for _, r in top.iterrows():

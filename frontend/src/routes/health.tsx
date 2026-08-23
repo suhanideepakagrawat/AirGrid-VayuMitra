@@ -9,7 +9,7 @@ import { CITIZEN_APP_URL, liveQuery, timeAgo, wardsQuery } from "@/lib/api";
 export const Route = createFileRoute("/health")({
   head: () => ({
     meta: [
-      { title: "Citizen advisory — AirGrid NCR" },
+      { title: "Citizen advisory - AirGrid NCR" },
       { name: "description", content: "Ward-level risk for sensitive groups and the multilingual VayuMitra citizen advisory, live from the deployed pipeline." },
     ],
   }),
@@ -36,7 +36,7 @@ type PersonaKey = (typeof PERSONAS)[number]["key"];
  *
  * Every persona gets distinct wording in EVERY band, including clean air. The first
  * version collapsed to a single shared sentence below AQI 100, which meant that on a
- * good day — like the 94 Delhi was reading when this was tested — the persona
+ * good day - like the 94 Delhi was reading when this was tested - the persona
  * selector appeared to do nothing at all. A control that visibly does nothing reads
  * as broken, and the differences are real regardless: an outdoor worker spends eight
  * hours in it, a child breathes faster per kilo of body weight, and someone with
@@ -66,7 +66,7 @@ function guidanceFor(persona: PersonaKey, aqi: number): string {
     respiratory: {
       severe: "Stay indoors with windows shut. Keep reliever medication to hand and seek help early if breathing worsens.",
       verypoor: "Avoid going out. Carry your inhaler if you must.",
-      moderate: "You may notice mild breathing discomfort — keep exertion light and carry your inhaler.",
+      moderate: "You may notice mild breathing discomfort - keep exertion light and carry your inhaler.",
       ok: "Comfortable for you today. Carry your inhaler as usual.",
     },
     outdoor_worker: {
@@ -108,8 +108,8 @@ function Health() {
   /**
    * Real wards ranked by measured risk, worst first.
    *
-   * This replaces a list of invented institutions — "DPS Dwarka · 610 people
-   * exposed", "Sanjay Gandhi Memorial · 180" — real school and hospital names
+   * This replaces a list of invented institutions - "DPS Dwarka · 610 people
+   * exposed", "Sanjay Gandhi Memorial · 180" - real school and hospital names
    * carrying fabricated exposure counts, ranked on synthetic cell AQI. Naming a real
    * school and inventing how many children it exposes was the least defensible thing
    * on the site. The question the panel answers is unchanged; it is now answered with
@@ -135,12 +135,12 @@ function Health() {
     <AppShell>
       {/* Viewport-locked only from md up; a phone scrolls the page so the ward
           risk list under the assistant is reachable. */}
-      <div className="grid grid-cols-1 md:[@media(min-height:820px)]:h-[calc(100vh-57px)] md:grid-cols-[1fr_440px]">
-        {/* VayuMitra — the real deployed citizen product, embedded live */}
-        <section className="relative h-[70vh] min-h-[420px] overflow-hidden border-b border-border bg-surface-1 md:h-auto md:min-h-0 md:border-b-0 md:border-r">
+      <div className="grid grid-cols-1 md:h-[calc(100vh-57px)] md:grid-cols-[1fr_440px]">
+        {/* VayuMitra - the real deployed citizen product, embedded live */}
+        <section className="relative h-[78vh] min-h-[440px] overflow-hidden border-b border-border bg-surface-1 md:sticky md:top-0 md:h-[calc(100vh-57px)] md:min-h-0 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between border-b border-border bg-panel px-5 py-3">
             <div>
-              <h1 className="text-base font-bold">VayuMitra — citizen advisory</h1>
+              <h1 className="text-base font-bold">VayuMitra - citizen advisory</h1>
               <p className="text-[12px] text-text-dim">
                 The live multilingual assistant (English · हिन्दी, voice-enabled), embedded from the deployed service.
               </p>
@@ -164,13 +164,13 @@ function Health() {
         </section>
 
         {/* Ward risk for sensitive groups, from live station readings */}
-        <aside className="bg-panel md:[@media(min-height:820px)]:overflow-y-auto">
+        <aside className="bg-panel md:h-[calc(100vh-57px)] md:overflow-y-auto">
           <div className="border-b border-border p-5">
             <div className="chip mb-3">Highest risk right now</div>
             <h2 className="text-lg font-bold">Where sensitive groups are most at risk</h2>
             <p className="mt-2 text-sm text-text-dim">
               Delhi's wards ranked by air measured in the last hour, worst first. Choose who you
-              are asking for and the guidance changes with them — the same CPCB and WHO persona
+              are asking for and the guidance changes with them - the same CPCB and WHO persona
               rules VayuMitra uses, not a generic public warning.
             </p>
             {liveNow.data?.available && (
@@ -218,7 +218,7 @@ function Health() {
             <p className="p-5 text-sm text-text-dim">
               {liveNow.data?.state === "warming"
                 ? "Fetching live station readings…"
-                : "Live station feed unavailable — VayuMitra beside this panel still answers from the forecast."}
+                : "Live station feed unavailable - VayuMitra beside this panel still answers from the forecast."}
             </p>
           ) : (
             <ul>

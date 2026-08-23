@@ -32,7 +32,7 @@ type QueueRow = {
 export const Route = createFileRoute("/enforcement")({
   head: () => ({
     meta: [
-      { title: "Enforcement — AirGrid NCR" },
+      { title: "Enforcement - AirGrid NCR" },
       { name: "description", content: "Live ward-level inspector deployment plan and ranked enforcement targets from the pipeline." },
     ],
   }),
@@ -48,8 +48,8 @@ function Enforcement() {
 
   // Two queues, and the better one wins.
   //
-  // /enforcement/sources ranks individual physical sources — a named road, a
-  // specific industrial polygon — which is what a team can actually be dispatched
+  // /enforcement/sources ranks individual physical sources - a named road, a
+  // specific industrial polygon - which is what a team can actually be dispatched
   // to. /enforcement/top ranks grid cells, which nobody can be sent to, and is kept
   // only as a fallback so the page still works if the source list is unavailable.
   const srcQ = useQuery(enforcementSourcesQuery);
@@ -99,7 +99,7 @@ function Enforcement() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const target = sorted.find((t) => t.key === selectedId) ?? sorted[0];
 
-  // Which teams the plan sends out, and how often — the "one glance" summary.
+  // Which teams the plan sends out, and how often - the "one glance" summary.
   const teamMix = useMemo(() => {
     if (!live) return [];
     const counts = new Map<string, number>();
@@ -129,8 +129,8 @@ function Enforcement() {
     <AppShell>
       {/* Viewport-locked only from md up. On a phone the document scrolls, so the
           dispatch queue below the map is reachable instead of being clipped. */}
-      <div className="grid grid-cols-1 md:[@media(min-height:820px)]:h-[calc(100vh-57px)] md:grid-cols-[1fr_500px] xl:grid-cols-[1fr_560px]">
-        <section className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:min-h-0 md:border-b-0 md:border-r">
+      <div className="grid grid-cols-1 md:h-[calc(100vh-57px)] md:grid-cols-[1fr_500px] xl:grid-cols-[1fr_560px]">
+        <section className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:sticky md:top-0 md:h-[calc(100vh-57px)] md:min-h-0 md:border-b-0 md:border-r">
           {live && wards.isSuccess ? (
             <>
               <DelhiWardMap
@@ -155,7 +155,7 @@ function Enforcement() {
           )}
         </section>
 
-        <aside className="bg-panel md:[@media(min-height:820px)]:overflow-y-auto">
+        <aside className="bg-panel md:h-[calc(100vh-57px)] md:overflow-y-auto">
           <div className="border-b border-border p-5">
             <div className="chip mb-3">
               {live ? "Ward deployment plan · live pipeline" : "Enforcement queue"}
@@ -185,7 +185,7 @@ function Enforcement() {
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a ward in the queue — Chhawla, Bawana…"
+                  placeholder="Find a ward in the queue - Chhawla, Bawana…"
                   className="w-full rounded-full border border-border bg-panel px-3.5 py-2 text-[12.5px] text-foreground placeholder:text-text-mute focus:border-accent-dim focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-glow)]"
                 />
               </div>
@@ -227,7 +227,7 @@ function Enforcement() {
                     );
                   })}
                   <p className="text-[12.5px] text-text-dim">
-                    Real ward, but not in today's top-30 deployment queue — inspection capacity
+                    Real ward, but not in today's top-30 deployment queue - inspection capacity
                     goes to worse wards first. See its forecast on the dashboard's ward finder.
                   </p>
                 </div>
@@ -240,7 +240,7 @@ function Enforcement() {
           )}
 
           {/* Two views, both useful, in the order a team would use them.
-              The ranked sources are the tactical list — a specific junction, a
+              The ranked sources are the tactical list - a specific junction, a
               specific site, with a team and an action. The ward plan below is the
               strategic one: which wards to cover. Previously the sources only
               rendered when the ward plan was unavailable, which meant the more

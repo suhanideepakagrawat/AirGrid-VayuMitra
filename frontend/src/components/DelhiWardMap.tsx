@@ -1,11 +1,16 @@
-// The real Delhi ward map — actual MCD boundaries from the pipeline's
+// The real Delhi ward map - actual MCD boundaries from the pipeline's
 // shapefile, pre-projected to SVG paths at build time (src/data/delhi-wards.json).
 // Wards are filled with their CPCB band color at the active horizon, so
 // switching +24/+48/+72 recolors the actual city. Click a ward to focus it.
 
 import { useMemo, useState } from "react";
 import WARD_GEO from "@/data/delhi-wards.json";
-import { aqiCategory, type Horizon } from "@/lib/air-data";
+import {
+  aqiCategory,
+  asForecast,
+  isNow,
+  type HorizonSel,
+} from "@/lib/air-data";
 import { wardAqiAt, type LiveWard } from "@/lib/api";
 
 type WardShape = { id: string; name: string; d: string; cx: number; cy: number };
@@ -15,6 +20,8 @@ const GEO = WARD_GEO as { w: number; h: number; wards: WardShape[] };
 export function DelhiWardMap({
   liveWards,
   horizon,
+  liveAqi,
+  urgentIds,
   selectedId,
   hereId,
   onPick,
@@ -23,9 +30,14 @@ export function DelhiWardMap({
   className = "",
 }: {
   liveWards: LiveWard[] | null;
-  horizon: Horizon;
+  horizon: HorizonSel;
+  /** Measured AQI per ward. When horizon is "now" the map paints these instead of
+   *  the forecast, so the control actually changes what the city looks like. */
+  liveAqi?: Map<string, number>;
+  /** Wards to ring in red - the ones authorities should go to first. */
+  urgentIds?: string[];
   selectedId?: string | null;
-  /** The user's own ward (from geolocation) — gets a "you are here" pin. */
+  /** The user's own ward (from geolocation) - gets a "you are here" pin. */
   hereId?: string | null;
   onPick?: (w: LiveWard) => void;
   /** Small numbered markers, e.g. deployment ranks: [{id: "W133", label: "1"}] */
@@ -33,6 +45,26 @@ export function DelhiWardMap({
   ambient?: boolean;
   className?: string;
 }) {
+  /** The number this map paints for a ward: measured when "Now" is selected and a
+   *  live reading exists, otherwise the forecast for the chosen horizon. */
+  const aqiOf = (w: LiveWard): number => {
+    if (isNow(horizon)) {
+      const v = liveAqi?.get(w.zone_id);
+      if (typeof v === "number") return v;
+    }
+    return wardAqiAt(w, asForecast(horizon));
+  };
+  const urgent = new Set(urgentIds ?? []);
+
+  // Zoom: the map renders large on a laptop and swallowed the panel below it.
+  // A plain scale on the viewBox keeps every coordinate in map space, so the
+  // hover card and badges stay pinned without extra maths.
+  const [zoom, setZoom] = useState(1);
+  const vbW = GEO.w / zoom;
+  const vbH = GEO.h / zoom;
+  const vbX = (GEO.w - vbW) / 2;
+  const vbY = (GEO.h - vbH) / 2;
+
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   const byId = useMemo(() => {
@@ -53,7 +85,7 @@ export function DelhiWardMap({
   return (
     <div className={`relative h-full w-full ${className}`}>
       <svg
-        viewBox={`0 0 ${GEO.w} ${GEO.h}`}
+        viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         preserveAspectRatio="xMidYMid meet"
         className="h-full w-full"
         role={ambient ? "img" : "group"}
@@ -63,21 +95,26 @@ export function DelhiWardMap({
           const live = byId.get(s.id);
           const isSel = selectedId === s.id;
           const isHover = hoverId === s.id;
-          const cat = live ? aqiCategory(wardAqiAt(live, horizon)) : null;
+          const cat = live ? aqiCategory(aqiOf(live)) : null;
           return (
             <path
               key={s.id + s.name}
               d={s.d}
               fill={cat ? cat.color : "var(--surface-2)"}
               fillOpacity={cat ? (ambient ? 0.5 : isHover || isSel ? 0.95 : 0.72) : 0.45}
-              stroke={isSel ? "var(--accent)" : isHover ? "var(--accent-dim)" : "var(--panel)"}
-              strokeWidth={isSel ? 2.5 : isHover ? 1.8 : 0.7}
+              stroke={
+                isSel ? "var(--accent)"
+                  : urgent.has(s.id) ? "var(--aqi-poor, #ff5a4e)"
+                  : isHover ? "var(--accent-dim)"
+                  : "var(--panel)"
+              }
+              strokeWidth={isSel ? 2.5 : urgent.has(s.id) ? 2.2 : isHover ? 1.8 : 0.7}
               style={{ transition: "fill 0.3s ease-out, fill-opacity 0.2s ease-out", cursor: !ambient && live && onPick ? "pointer" : "default" }}
               onMouseEnter={() => !ambient && setHoverId(s.id)}
               onMouseLeave={() => !ambient && setHoverId(null)}
               onClick={() => !ambient && live && onPick?.(live)}
             >
-              {!ambient && <title>{live ? `${live.name} · AQI ${wardAqiAt(live, horizon)}` : `${s.name} · outside the forecast set`}</title>}
+              {!ambient && <title>{live ? `${live.name} · AQI ${aqiOf(live)}` : `${s.name} · outside the forecast set`}</title>}
             </path>
           );
         })}
@@ -90,7 +127,7 @@ export function DelhiWardMap({
             return <path d={s.d} fill="none" stroke="var(--accent)" strokeWidth="2.5" />;
           })()}
 
-        {/* "You are here" — pin at the geolocated ward's centroid */}
+        {/* "You are here" - pin at the geolocated ward's centroid */}
         {hereId &&
           (() => {
             const s = GEO.wards.find((x) => x.id === hereId);
@@ -121,7 +158,36 @@ export function DelhiWardMap({
         })}
       </svg>
 
-      {/* Hover card — name, AQI, band, dominant source */}
+      {!ambient && (
+        <div className="absolute bottom-3 right-3 z-10 flex flex-col overflow-hidden rounded-md border border-border bg-panel shadow-[0_2px_8px_rgba(9,20,28,0.12)]">
+          <button
+            onClick={() => setZoom((z) => Math.min(4, +(z + 0.4).toFixed(2)))}
+            aria-label="Zoom in"
+            className="px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground"
+          >
+            +
+          </button>
+          <button
+            onClick={() => setZoom((z) => Math.max(1, +(z - 0.4).toFixed(2)))}
+            aria-label="Zoom out"
+            disabled={zoom <= 1}
+            className="border-t border-border px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground disabled:opacity-40"
+          >
+            &minus;
+          </button>
+          {zoom > 1 && (
+            <button
+              onClick={() => setZoom(1)}
+              aria-label="Reset zoom"
+              className="mono border-t border-border px-1.5 py-1 text-[9px] text-text-mute hover:bg-surface-1"
+            >
+              {zoom.toFixed(1)}x
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Hover card - name, AQI, band, dominant source */}
       {!ambient && hovered && hoveredShape && (
         <div
           className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-md border border-border bg-panel px-3 py-2 shadow-[0_2px_8px_rgba(9,20,28,0.12)]"
@@ -135,15 +201,15 @@ export function DelhiWardMap({
             <span
               className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
               style={{
-                background: aqiCategory(wardAqiAt(hovered, horizon)).color,
-                color: aqiCategory(wardAqiAt(hovered, horizon)).text,
+                background: aqiCategory(aqiOf(hovered)).color,
+                color: aqiCategory(aqiOf(hovered)).text,
               }}
             >
-              {wardAqiAt(hovered, horizon)}
+              {aqiOf(hovered)}
             </span>
           </div>
           <div className="mono mt-0.5 whitespace-nowrap text-[11px] text-text-mute">
-            {aqiCategory(wardAqiAt(hovered, horizon)).label}
+            {aqiCategory(aqiOf(hovered)).label}
             {hovered.dominant_source ? ` · ${hovered.dominant_source}` : ""}
           </div>
         </div>

@@ -29,6 +29,9 @@ import {
   SOURCE_LABELS,
   type Cell,
   type Horizon,
+  type HorizonSel,
+  asForecast,
+  isNow,
   type SourceKey,
 } from "@/lib/air-data";
 import {
@@ -42,7 +45,7 @@ import {
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — AirGrid NCR" },
+      { title: "Dashboard - AirGrid NCR" },
       { name: "description", content: "Live map-first view of Delhi-NCR air quality, source attribution, and enforcement targets." },
     ],
   }),
@@ -59,9 +62,37 @@ const LIVE_SOURCE_META: Record<string, { label: string; color: string }> = {
   construction: { label: "Construction dust", color: "var(--source-construction)" },
 };
 
+/**
+ * Live AQI per ward, keyed by zone_id.
+ *
+ * Shared by every panel so "Now" means one thing across the page. Kept as a hook
+ * rather than drilled through props: the pulse strip, the ward list and the ward
+ * detail all need it, and react-query dedupes the fetch anyway.
+ */
+function useLiveAqiMap() {
+  const q = useQuery(liveQuery);
+  return useMemo(() => {
+    const m = new Map<string, number>();
+    if (q.data?.available) for (const w of q.data.wards) m.set(w.zone_id, w.aqi);
+    return m;
+  }, [q.data]);
+}
+
+/** AQI for a ward at the selected horizon. "now" uses the measured reading and
+ *  falls back to +24 h only when a ward has no live station coverage. */
+function aqiForSel(w: LiveWard, sel: HorizonSel, live: Map<string, number>): number {
+  if (sel === "now") {
+    const v = live.get(w.zone_id);
+    if (typeof v === "number") return v;
+  }
+  return wardAqiAt(w, asForecast(sel));
+}
+
 function Dashboard() {
   const [sel, setSel] = useState<Selection | null>(null);
-  const [horizon, setHorizon] = useState<Horizon>("24");
+  const [horizon, setHorizon] = useState<HorizonSel>("now");
+  const liveAqi = useLiveAqiMap();
+
   const [showMethod, setShowMethod] = useState(false);
   const [mapMode, setMapMode] = useState<"wards" | "grid">("wards");
   const [sourceFilter, setSourceFilter] = useState<SourceKey | "all">("all");
@@ -76,6 +107,16 @@ function Dashboard() {
   const live = useQuery(wardsQuery());
   const liveWards: LiveWard[] | null =
     live.isSuccess && live.data.wards.length > 0 ? live.data.wards : null;
+  // The ten worst wards at the selected horizon, ringed red on the map so the
+  // question "where do we go first" is answerable at a glance rather than by
+  // reading a list.
+  const urgentWardIds = useMemo(() => {
+    if (!liveWards) return [];
+    return [...liveWards]
+      .sort((a, b) => aqiForSel(b, horizon, liveAqi) - aqiForSel(a, horizon, liveAqi))
+      .slice(0, 10)
+      .map((w) => w.zone_id);
+  }, [liveWards, horizon, liveAqi]);
   const deployment = useQuery(deploymentQuery);
   const deployRows: DeploymentRow[] =
     deployment.isSuccess && deployment.data.available ? deployment.data.items : [];
@@ -101,7 +142,7 @@ function Dashboard() {
       {/* Locked to the viewport only from md up, where the two-pane layout needs a
           fixed frame. Below that the page scrolls normally: pinning a phone to
           100vh with overflow-hidden made the ward detail and predictions
-          unreachable — they existed, just below a wall with no scrollbar. */}
+          unreachable - they existed, just below a wall with no scrollbar. */}
       <div className="flex flex-col md:[@media(min-height:820px)]:h-[calc(100vh-57px)]">
         {/* Provenance first: the live reading and the forecast run are different
             kinds of number, and the page says so before showing either. */}
@@ -199,6 +240,8 @@ function Dashboard() {
                 <DelhiWardMap
                   liveWards={liveWards}
                   horizon={horizon}
+                  liveAqi={liveAqi}
+                  urgentIds={urgentWardIds}
                   selectedId={active?.kind === "ward" ? active.ward.zone_id : null}
                   hereId={my.status === "found" ? my.zone?.zone_id ?? null : null}
                   onPick={(w) => setSel({ kind: "ward", ward: w })}
@@ -210,7 +253,7 @@ function Dashboard() {
                   onSelect={(cell) => setSel({ kind: "cell", cell })}
                   layers={layers}
                   sourceFilter={sourceFilter}
-                  horizon={horizon}
+                  horizon={asForecast(horizon)}
                 />
               )}
               <div className="pointer-events-none absolute left-4 top-4 flex flex-col gap-2">
@@ -237,8 +280,8 @@ function Dashboard() {
                 )}
                 <div className="mono text-[11px] text-text-mute">
                   {mapMode === "wards" && liveWards
-                    ? `209 real wards · click any ward · +${horizon} h · ${HORIZON_LABEL[horizon].toLowerCase()}`
-                    : `Sample evidence scene · +${horizon} h · ${HORIZON_LABEL[horizon].toLowerCase()}`}
+                    ? `209 real wards · click any ward · ${isNow(horizon) ? "measured now" : `+${horizon} h · ${HORIZON_LABEL[horizon as Horizon].toLowerCase()}`}`
+                    : `Sample evidence scene · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
                 </div>
               </div>
             </div>
@@ -255,7 +298,7 @@ function Dashboard() {
                   deployRows={deployRows}
                 />
               ) : (
-                <CellDetail cell={active?.cell ?? null} horizon={horizon} onHorizon={setHorizon} />
+                <CellDetail cell={active?.cell ?? null} horizon={asForecast(horizon)} onHorizon={setHorizon} />
               )}
             </div>
           </section>
@@ -266,7 +309,7 @@ function Dashboard() {
 }
 
 /* ------------------------------------------------------------------ */
-/* City pulse — the strip where the horizon control lives              */
+/* City pulse - the strip where the horizon control lives              */
 /* ------------------------------------------------------------------ */
 
 function PulseStrip({
@@ -277,8 +320,8 @@ function PulseStrip({
   showMethod,
   onToggleMethod,
 }: {
-  horizon: Horizon;
-  onHorizon: (h: Horizon) => void;
+  horizon: HorizonSel;
+  onHorizon: (h: HorizonSel) => void;
   liveWards: LiveWard[] | null;
   dataKind: string | null;
   showMethod: boolean;
@@ -290,19 +333,19 @@ function PulseStrip({
         HORIZONS.map((h) => [h, liveWards.map((w) => wardAqiAt(w, h))]),
       ) as Record<Horizon, number[]>;
       const mean = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / (xs.length || 1));
-      const aqis = perHorizon[horizon];
+      const aqis = perHorizon[asForecast(horizon)];
       const worstIdx = aqis.indexOf(Math.max(...aqis));
       return {
         aqis,
         avg: mean(aqis),
         avg24: mean(perHorizon["24"]),
-        worstName: liveWards[worstIdx]?.name ?? "—",
+        worstName: liveWards[worstIdx]?.name ?? "-",
         worstAqi: aqis[worstIdx] ?? 0,
         unit: "wards",
         count: liveWards.length,
       };
     }
-    const aqis = CELLS.map((c) => cellAqi(c, horizon));
+    const aqis = CELLS.map((c) => cellAqi(c, asForecast(horizon)));
     const aqis24 = CELLS.map((c) => c.aqi);
     const mean = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
     const worstIdx = aqis.indexOf(Math.max(...aqis));
@@ -310,7 +353,7 @@ function PulseStrip({
       aqis,
       avg: mean(aqis),
       avg24: mean(aqis24),
-      worstName: CELLS[worstIdx]?.ward ?? "—",
+      worstName: CELLS[worstIdx]?.ward ?? "-",
       worstAqi: aqis[worstIdx] ?? 0,
       unit: "cells",
       count: CELLS.length,
@@ -346,7 +389,7 @@ function PulseStrip({
       <div className="hidden min-w-[220px] max-w-[340px] flex-1 xl:block">
         <BandDistribution
           aqis={stats.aqis}
-          caption={`${stats.count} ${stats.unit} · ${dataKind === "real" ? "real pipeline forecast" : dataKind === "mock" ? "pipeline sample" : "sample scene"} · +${horizon} h`}
+          caption={`${stats.count} ${stats.unit} · ${dataKind === "real" ? "real pipeline forecast" : dataKind === "mock" ? "pipeline sample" : "sample scene"} · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
         />
       </div>
 
@@ -366,7 +409,7 @@ function PulseStrip({
 }
 
 /* ------------------------------------------------------------------ */
-/* Ward finder — search all 209 real wards; worst-first when idle      */
+/* Ward finder - search all 209 real wards; worst-first when idle      */
 /* ------------------------------------------------------------------ */
 
 function WardFinder({
@@ -376,7 +419,7 @@ function WardFinder({
   activeWardId,
   onPick,
 }: {
-  horizon: Horizon;
+  horizon: HorizonSel;
   liveWards: LiveWard[] | null;
   pending: boolean;
   activeWardId: string | null;
@@ -384,31 +427,24 @@ function WardFinder({
 }) {
   const [query, setQuery] = useState("");
 
-  // Measured-now AQI per ward, so the list shows what the instruments read
-  // alongside what the models predict — not just a city average.
-  const liveQ = useQuery(liveQuery);
-  const liveById = useMemo(() => {
-    const m = new Map<string, number>();
-    if (liveQ.data?.available) {
-      for (const w of liveQ.data.wards) m.set(w.zone_id, w.aqi);
-    }
-    return m;
-  }, [liveQ.data]);
+  const liveById = useLiveAqiMap();
 
   const rows = useMemo(() => {
     if (!liveWards) return null;
     const q = query.trim().toLowerCase();
     const pool = q
       ? liveWards.filter((w) => w.name.toLowerCase().includes(q))
-      : [...liveWards].sort((a, b) => wardAqiAt(b, horizon) - wardAqiAt(a, horizon));
+      : [...liveWards].sort((a, b) => aqiForSel(b, horizon, liveById) - aqiForSel(a, horizon, liveById));
     return pool.slice(0, q ? 12 : 15);
-  }, [liveWards, query, horizon]);
+  }, [liveWards, query, horizon, liveById]);
 
   const title = !rows
     ? "Ward feed"
     : query.trim()
       ? `Matches · ${rows.length}${rows.length === 12 ? "+" : ""}`
-      : `Worst wards · measured now vs +${horizon} h`;
+      : isNow(horizon)
+        ? "Worst wards · measured now"
+        : `Worst wards · measured now vs +${horizon} h`;
 
   return (
     <div className="border-b border-border p-4">
@@ -420,7 +456,7 @@ function WardFinder({
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Type a ward — Narela, Dabri…"
+        placeholder="Type a ward - Narela, Dabri…"
         disabled={!liveWards}
         className="mb-3 w-full rounded-full border border-border bg-panel px-3.5 py-2 text-[12.5px] text-foreground placeholder:text-text-mute focus:border-accent-dim focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-glow)]"
       />
@@ -430,7 +466,7 @@ function WardFinder({
       )}
       {!pending && !rows && (
         <div className="mono px-2 py-1.5 text-[11px] text-text-mute">
-          API unreachable — map shows the bundled sample scene.
+          API unreachable - map shows the bundled sample scene.
         </div>
       )}
       {rows && rows.length === 0 && (
@@ -441,7 +477,7 @@ function WardFinder({
       {rows && rows.length > 0 && (
         <ul className="space-y-0.5">
           {rows.map((w) => {
-            const aqi = wardAqiAt(w, horizon);
+            const aqi = wardAqiAt(w, asForecast(horizon));
             const cat = aqiCategory(aqi);
             const isActive = w.zone_id === activeWardId;
             return (
@@ -475,7 +511,7 @@ function WardFinder({
                     <span
                       className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
                       style={{ background: cat.color, color: cat.text }}
-                      title={`Forecast +${horizon}h · ${cat.label}`}
+                      title={`Forecast +${asForecast(horizon)}h · ${cat.label}`}
                     >
                       {aqi}
                     </span>
@@ -488,7 +524,7 @@ function WardFinder({
       )}
       {rows && (
         <div className="mono mt-2 text-[11px] text-text-mute">
-          Measured now → forecast +{horizon} h. Tap a ward for the full detail.
+          Measured now (CPCB) → forecast +{asForecast(horizon)} h. Tap a ward for detail.
         </div>
       )}
     </div>
@@ -543,7 +579,7 @@ const detailGrid =
   "grid grid-cols-1 gap-px bg-border sm:grid-cols-2 xl:grid-cols-[280px_230px_minmax(240px,1fr)_280px]";
 
 /* ------------------------------------------------------------------ */
-/* Ward detail — a REAL ward: live forecast, sources, deployment       */
+/* Ward detail - a REAL ward: live forecast, sources, deployment       */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -552,7 +588,7 @@ const detailGrid =
  * Sits directly above the forecast so the two are never conflated: this is a
  * measurement, the ball beside it is a prediction. Names the contributing station
  * and its distance, because a ward 8 km from the nearest monitor deserves less
- * confidence than one sitting on top of it — and hiding that would be the dishonest
+ * confidence than one sitting on top of it - and hiding that would be the dishonest
  * choice.
  */
 function LiveNowBlock({ zoneId }: { zoneId: string }) {
@@ -616,12 +652,17 @@ function WardDetail({
   deployRows,
 }: {
   ward: LiveWard;
-  horizon: Horizon;
-  onHorizon: (h: Horizon) => void;
+  horizon: HorizonSel;
+  onHorizon: (h: HorizonSel) => void;
   deployRows: DeploymentRow[];
 }) {
-  const aqiNow = wardAqiAt(ward, horizon);
-  const values = Object.fromEntries(HORIZONS.map((h) => [h, wardAqiAt(ward, h)])) as Record<Horizon, number>;
+  const liveById = useLiveAqiMap();
+  const aqiNow = aqiForSel(ward, horizon, liveById);
+  // Now first, then the forecasts - the order a reader actually wants.
+  const values = {
+    ...(liveById.has(ward.zone_id) ? { now: liveById.get(ward.zone_id)! } : {}),
+    ...Object.fromEntries(HORIZONS.map((h) => [h, wardAqiAt(ward, h)])),
+  } as Partial<Record<HorizonSel, number>>;
   const mix = ward.sources
     ? Object.entries(ward.sources).map(([k, v]) => ({
         key: k,
@@ -645,8 +686,8 @@ function WardDetail({
           <AqiBall aqi={aqiNow} size={64} />
           <div>
             <BandBadge aqi={aqiNow} />
-            <div className="mono mt-1 text-[11px] text-text-mute">CPCB band · +{horizon} h</div>
-            <div className="mt-1"><DeltaTag now={aqiNow} base={values["24"]} /></div>
+            <div className="mono mt-1 text-[11px] text-text-mute">CPCB band · {isNow(horizon) ? "measured now" : `+${horizon} h`}</div>
+            <div className="mt-1"><DeltaTag now={aqiNow} base={values["24"] ?? aqiNow} /></div>
           </div>
         </div>
         <LiveNowBlock zoneId={ward.zone_id} />
@@ -668,7 +709,7 @@ function WardDetail({
       {/* Attribution */}
       <div className="bg-bg-secondary p-5">
         <div className="mono text-[11px] text-text-mute">Likely source</div>
-        <div className="mt-2 text-lg font-bold">{ward.dominant_source ?? "—"}</div>
+        <div className="mt-2 text-lg font-bold">{ward.dominant_source ?? "-"}</div>
         {ward.dominant_source_pct > 0 && (
           <div className="mono mt-0.5 text-[11px] text-text-mute">
             {Math.round(ward.dominant_source_pct)}% of this ward's load
@@ -703,7 +744,7 @@ function WardDetail({
           </div>
         ) : (
           <p className="mt-2 text-[12.5px] text-text-dim">
-            Not in the top-30 deployment queue at this run — inspection capacity goes to
+            Not in the top-30 deployment queue at this run - inspection capacity goes to
             worse wards first.
           </p>
         )}
@@ -713,7 +754,7 @@ function WardDetail({
 }
 
 /* ------------------------------------------------------------------ */
-/* Cell detail — sample-scene cell with evidence story                 */
+/* Cell detail - sample-scene cell with evidence story                 */
 /* ------------------------------------------------------------------ */
 
 function CellDetail({
@@ -723,7 +764,7 @@ function CellDetail({
 }: {
   cell: Cell | null;
   horizon: Horizon;
-  onHorizon: (h: Horizon) => void;
+  onHorizon: (h: HorizonSel) => void;
 }) {
   if (!cell) {
     return (

@@ -1,7 +1,7 @@
 // Mock grid data for the Delhi-NCR air intelligence platform.
 // Cells are on a ~1 km pseudo-grid within a bounding box, each with a dominant
 // source, confidence, and forecast AQI. This is intentionally deterministic so
-// the UI renders the same "scene" every load — no real geo dependencies.
+// the UI renders the same "scene" every load - no real geo dependencies.
 
 export type SourceKey = "traffic" | "industry" | "construction" | "burning";
 
@@ -22,7 +22,7 @@ export const SOURCE_COLORS: Record<SourceKey, string> = {
 /**
  * What each source signature is actually measured from.
  *
- * These replace four earlier strings that described a system we had not built —
+ * These replace four earlier strings that described a system we had not built -
  * they cited NO2 "signatures", "3 registered brick kilns", DPCC permits and MODIS
  * fire detections at a time when none of those existed in the backend. Every claim
  * below now maps to a real measurement: `advisory/fingerprints.py` for the pollutant
@@ -34,16 +34,16 @@ export const SOURCE_COLORS: Record<SourceKey, string> = {
  */
 export const SOURCE_EVIDENCE: Record<SourceKey, string> = {
   traffic:
-    "NO₂ measured at CPCB monitoring stations and compared with the citywide median at the same moment. Vehicles dominate Delhi's NO₂, and it is short-lived — so a raised reading points at a source close by rather than one drifting in.",
+    "NO₂ measured at CPCB monitoring stations and compared with the citywide median at the same moment. Vehicles dominate Delhi's NO₂, and it is short-lived - so a raised reading points at a source close by rather than one drifting in.",
   industry:
-    "SO₂ measured and compared with the citywide median. SO₂ comes from burning sulphur-bearing fuel — coal, heavy oil, kilns. Since BS-VI fuel, vehicles emit very little of it, which is what makes it a useful industrial marker.",
+    "SO₂ measured and compared with the citywide median. SO₂ comes from burning sulphur-bearing fuel - coal, heavy oil, kilns. Since BS-VI fuel, vehicles emit very little of it, which is what makes it a useful industrial marker.",
   construction:
     "The PM10 to PM2.5 ratio. Digging, crushing and road dust throw coarse particles; combustion makes fine ones. A coarse-heavy mix is the standard indicator for mechanically-generated dust.",
   burning:
     "NASA VIIRS satellite fire detections across Punjab and Haryana, counted only when the measured station wind is actually carrying them towards Delhi. Fires burning with the wind blowing elsewhere are not attributed here.",
 };
 
-/** What kinds of evidence each source genuinely draws on — the badge row under a
+/** What kinds of evidence each source genuinely draws on - the badge row under a
  *  source card. "Registered permits" was removed: no public real-time DPCC permit
  *  feed exists, so nothing backed it. */
 export const SOURCE_BASIS: Record<SourceKey, string[]> = {
@@ -157,10 +157,19 @@ export const CELLS: Cell[] = (() => {
 
 // Per-horizon AQI for the sample scene. The scene tells one meteorological
 // story: tonight's stagnation loads the NW burning/industry corridor at +48h,
-// then a western disturbance flushes the basin at +72h — construction dust is
+// then a western disturbance flushes the basin at +72h - construction dust is
 // the slowest to clear. Deterministic, so every load shows the same story.
 export type Horizon = "24" | "48" | "72";
 export const HORIZONS: Horizon[] = ["24", "48", "72"];
+
+/** What the user can pick, including the present. "now" resolves to the measured
+ *  live reading rather than a model forecast, so the two are never conflated. */
+export type HorizonSel = "now" | Horizon;
+export const HORIZON_SEL: HorizonSel[] = ["now", "24", "48", "72"];
+
+export const isNow = (h: HorizonSel): h is "now" => h === "now";
+/** The forecast horizon to fall back to when "now" has no live value. */
+export const asForecast = (h: HorizonSel): Horizon => (h === "now" ? "24" : h);
 
 export function cellAqi(c: Cell, h: Horizon): number {
   if (h === "24") return c.aqi;
@@ -176,7 +185,7 @@ export function cellAqi(c: Cell, h: Horizon): number {
   return Math.round(c.aqi * drop);
 }
 
-// CPCB National AQI categories — a public standard, never recolored for taste.
+// CPCB National AQI categories - a public standard, never recolored for taste.
 // `text` follows the Legible Band Rule: ink on the light bands (Good, Satisfactory,
 // Moderate), white only on Poor / Very Poor / Severe.
 export function aqiCategory(aqi: number): { label: string; labelHi: string; color: string; text: string } {
@@ -196,8 +205,8 @@ export const FIRE_HOTSPOTS = [
 ];
 
 export const ENFORCEMENT_TARGETS = [
-  { id: "e1", name: "Bawana Cluster Kilns", type: "Industry", priority: 94, ward: "Bawana", cellId: "c-3-2", action: "Issue closure notice — SO₂ 3.1× limit" },
-  { id: "e2", name: "Narela Phase-III Sites", type: "Construction", priority: 88, ward: "Narela Industrial", cellId: "c-6-3", action: "Suspend dust permits — DPCC" },
+  { id: "e1", name: "Bawana Cluster Kilns", type: "Industry", priority: 94, ward: "Bawana", cellId: "c-3-2", action: "Issue closure notice - SO₂ 3.1× limit" },
+  { id: "e2", name: "Narela Phase-III Sites", type: "Construction", priority: 88, ward: "Narela Industrial", cellId: "c-6-3", action: "Suspend dust permits - DPCC" },
   { id: "e3", name: "Wazirpur Rolling Mills", type: "Industry", priority: 81, ward: "Wazirpur", cellId: "c-9-5", action: "Emissions audit within 48h" },
   { id: "e4", name: "Anand Vihar ISBT Corridor", type: "Traffic", priority: 76, ward: "Anand Vihar", cellId: "c-19-7", action: "Deploy odd-even + BS-III curb" },
   { id: "e5", name: "Mundka Waste Depot", type: "Construction", priority: 72, ward: "Mundka", cellId: "c-2-6", action: "Inspect biomass burn reports" },
@@ -214,5 +223,5 @@ export const VULNERABLE_SITES = [
   { id: "v6", type: "School", name: "Mount Carmel Okhla", x: 16, y: 11, exposed: 380 },
 ];
 
-// Wind vector for the "current run" — pointing SE from NW (typical winter transport)
+// Wind vector for the "current run" - pointing SE from NW (typical winter transport)
 export const WIND = { dxCell: 1, dyCell: 0.55, speedKmh: 12, dirLabel: "NW → SE" };

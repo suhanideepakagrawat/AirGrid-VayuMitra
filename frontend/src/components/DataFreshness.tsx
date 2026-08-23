@@ -4,7 +4,7 @@ import { liveQuery, timeAgo, wardsQuery, type LiveNow } from "@/lib/api";
 import { aqiCategory } from "@/lib/air-data";
 
 /**
- * The provenance strip — the single most important honesty surface in the product.
+ * The provenance strip - the single most important honesty surface in the product.
  *
  * AirGrid serves two different kinds of number and they must never be confused:
  *
@@ -90,14 +90,14 @@ export function DataFreshness({ className = "" }: { className?: string }) {
               {summary.worst.aqi}
             </span>
             <span className="mono text-[11px] text-text-mute">
-              {summary.stations} CPCB stations · measured {timeAgo(live.data?.observed_at)}
+              CPCB · {summary.stations} stations · measured {timeAgo(live.data?.observed_at)}
             </span>
           </>
         ) : live.data?.state === "warming" ? (
           <span className="text-[12px] text-text-dim">fetching station readings…</span>
         ) : (
           <span className="text-[12px] text-text-dim">
-            live station feed unavailable — forecast below is unaffected
+            live station feed unavailable - forecast below is unaffected
           </span>
         )}
       </div>

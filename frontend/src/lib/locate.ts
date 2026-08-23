@@ -1,4 +1,4 @@
-// "Find my ward" — browser geolocation resolved to a real MCD ward by the
+// "Find my ward" - browser geolocation resolved to a real MCD ward by the
 // backend (point-in-polygon over the actual boundaries, nearest-forecast-ward
 // fallback). The coordinate is used once per lookup and never stored.
 
@@ -15,7 +15,7 @@ export type LocateResponse = {
 };
 
 export type GeoStatus =
-  | "idle"        // not asked yet — show the button
+  | "idle"        // not asked yet - show the button
   | "locating"
   | "found"       // zone is set
   | "outside"     // real GPS fix, but not in Delhi
@@ -28,6 +28,10 @@ export type MyWard = {
   zone: LiveWard | null;
   wardName: string | null;
   matched: LocateResponse["matched"] | null;
+  /** The device's own fix. Reported even when it falls outside Delhi, so a user
+   *  can see the location feature actually worked rather than just being told
+   *  "outside" with nothing to check it against. */
+  coords: { lat: number; lon: number; accuracy_m: number | null } | null;
   request: () => void;
 };
 
@@ -39,6 +43,7 @@ export function useMyWard(
   const [zone, setZone] = useState<LiveWard | null>(null);
   const [wardName, setWardName] = useState<string | null>(null);
   const [matched, setMatched] = useState<LocateResponse["matched"] | null>(null);
+  const [coords, setCoords] = useState<MyWard["coords"]>(null);
   const onFoundRef = useRef(onFound);
   onFoundRef.current = onFound;
 
@@ -51,7 +56,12 @@ export function useMyWard(
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const { latitude, longitude } = pos.coords;
+          const { latitude, longitude, accuracy } = pos.coords;
+          setCoords({
+            lat: latitude,
+            lon: longitude,
+            accuracy_m: typeof accuracy === "number" ? Math.round(accuracy) : null,
+          });
           const r = await fetch(`${API_BASE}/locate?lat=${latitude}&lon=${longitude}`);
           const data = (await r.json()) as LocateResponse;
           if (data.zone) {
@@ -72,9 +82,9 @@ export function useMyWard(
     );
   }, []);
 
-  // auto:"always" (the dashboard) asks for location on load — the permission
+  // auto:"always" (the dashboard) asks for location on load - the permission
   // prompt itself is the ask. auto:"granted" (default) only resolves silently
-  // when a previous visit already granted it — no prompt fires.
+  // when a previous visit already granted it - no prompt fires.
   const auto = opts?.auto ?? "granted";
   useEffect(() => {
     if (typeof navigator === "undefined") return;
@@ -95,5 +105,5 @@ export function useMyWard(
     };
   }, [request, auto]);
 
-  return { status, zone, wardName, matched, request };
+  return { status, zone, wardName, matched, coords, request };
 }

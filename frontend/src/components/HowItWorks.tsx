@@ -1,4 +1,4 @@
-// "How this works, in plain words" — every feature page explains its own
+// "How this works, in plain words" - every feature page explains its own
 // method in language a non-engineer can follow. The steps are real sequences
 // (data flows in this order through the pipeline), so the numbers carry
 // information, not decoration.
@@ -8,7 +8,7 @@ type Step = { title: string; body: string };
 type Method = {
   heading: string;
   steps: Step[];
-  honest: string; // the honesty line — what this is NOT
+  honest: string; // the honesty line - what this is NOT
 };
 
 export const METHODS = {
@@ -17,7 +17,7 @@ export const METHODS = {
     steps: [
       {
         title: "Learn from the past",
-        body: "Three XGBoost models study months of CPCB sensor readings alongside weather — wind, temperature, humidity, season.",
+        body: "Three XGBoost models study months of CPCB sensor readings alongside weather - wind, temperature, humidity, season.",
       },
       {
         title: "Fill the gaps",
@@ -33,7 +33,7 @@ export const METHODS = {
       },
     ],
     honest:
-      "Validated, not vibes (Leave-One-Station-Out): spatial estimates beat IDW interpolation by 8% and nearest-station by 23%. Forecasts beat persistence at +48h/+72h; at +24h persistence stays competitive — a known property of day-ahead AQI — and our error (~43 AQI ≈ half a CPCB band) remains actionable.",
+      "Validated, not vibes (Leave-One-Station-Out): spatial estimates beat IDW interpolation by 8% and nearest-station by 23%. Forecasts beat persistence at +48h/+72h; at +24h persistence stays competitive - a known property of day-ahead AQI - and our error (~43 AQI ≈ half a CPCB band) remains actionable.",
   },
   attribution: {
     heading: "How we name the source, in plain words",
@@ -44,7 +44,7 @@ export const METHODS = {
       },
       {
         title: "Look upwind",
-        body: "What sits along that path — 958,000 mapped road segments, 342 industrial sites, 175 construction sites, and live NASA satellite fire detections across Punjab and Haryana.",
+        body: "What sits along that path - 958,000 mapped road segments, 342 industrial sites, 175 construction sites, and live NASA satellite fire detections across Punjab and Haryana.",
       },
       {
         title: "Read the chemistry",
@@ -52,7 +52,7 @@ export const METHODS = {
       },
       {
         title: "State the share",
-        body: "Two independent lines of evidence — what sits upwind, and what the air is actually made of — combine into a source split with a confidence label per square.",
+        body: "Two independent lines of evidence - what sits upwind, and what the air is actually made of - combine into a source split with a confidence label per square.",
       },
     ],
     honest: "Directional evidence with stated confidence, cross-checked against live pollutant chemistry.",
@@ -62,48 +62,48 @@ export const METHODS = {
     steps: [
       {
         title: "How bad is it?",
-        body: "Severity — the ward's peak forecast AQI over the next 72 hours.",
+        body: "Severity - the ward's peak forecast AQI over the next 72 hours.",
       },
       {
         title: "Who is causing it?",
-        body: "Attribution — the dominant source in that ward, so the right team is sent (traffic police ≠ dust control).",
+        body: "Attribution - the dominant source in that ward, so the right team is sent (traffic police ≠ dust control).",
       },
       {
         title: "Does it stay bad?",
-        body: "Persistence — wards that stay polluted across all three horizons outrank one-day spikes.",
+        body: "Persistence - wards that stay polluted across all three horizons outrank one-day spikes.",
       },
       {
         title: "Name the actual source",
-        body: "Beyond the ward, we rank the individual sources behind it — a named road, a specific industrial site, a junction — by how much they contribute, how bad the areas they reach already are, and how many squares they touch.",
+        body: "Beyond the ward, we rank the individual sources behind it - a named road, a specific industrial site, a junction - by how much they contribute, how bad the areas they reach already are, and how many squares they touch.",
       },
       {
         title: "Rank and assign",
         body: "Each target carries a ward, coordinates, the team to send and the action to take. The queue is balanced across source types and spread across the city, so one van is never sent to four adjacent corners.",
       },
     ],
-    honest: "Every target carries its evidence and confidence — a prioritisation aid for limited inspection capacity.",
+    honest: "Every target carries its evidence and confidence - a prioritisation aid for limited inspection capacity.",
   },
   advisory: {
     heading: "How the advice is made, in plain words",
     steps: [
       {
         title: "Start from your ward",
-        body: "VayuMitra takes the same 72-hour forecast for the ward you name — one of 209 real Delhi wards.",
+        body: "VayuMitra takes the same 72-hour forecast for the ward you name - one of 209 real Delhi wards.",
       },
       {
         title: "Apply the health rules",
-        body: "CPCB band thresholds plus WHO guidance decide what's safe — for you specifically: child, elderly, asthma, pregnancy, outdoor work.",
+        body: "CPCB band thresholds plus WHO guidance decide what's safe - for you specifically: child, elderly, asthma, pregnancy, outdoor work.",
       },
       {
         title: "Say it in your language",
-        body: "The answer is composed in English or हिन्दी and can be spoken aloud — built for households, not dashboards.",
+        body: "The answer is composed in English or हिन्दी and can be spoken aloud - built for households, not dashboards.",
       },
       {
         title: "Cite every claim",
-        body: "Each answer carries its authorities — CPCB · SAFAR · WHO · GRAP — tappable, with publisher and year.",
+        body: "Each answer carries its authorities - CPCB · SAFAR · WHO · GRAP - tappable, with publisher and year.",
       },
     ],
-    honest: "Guidance, not diagnosis — the model can only phrase what the cited health standards establish.",
+    honest: "Guidance, not diagnosis - the model can only phrase what the cited health standards establish.",
   },
 } satisfies Record<string, Method>;
 

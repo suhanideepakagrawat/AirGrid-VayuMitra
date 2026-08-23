@@ -24,6 +24,10 @@ import {
   SOURCE_BASIS,
   SOURCE_LABELS,
   type Horizon,
+  type HorizonSel,
+  HORIZON_SEL,
+  asForecast,
+  isNow,
   type SourceKey,
 } from "@/lib/air-data";
 import {
@@ -67,7 +71,7 @@ function Landing() {
         </Link>
       </header>
 
-      {/* Hero — the claim on the left, the real city on the right */}
+      {/* Hero - the claim on the left, the real city on the right */}
       <section className="border-b border-border">
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-10 md:pt-16 lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
           <div>
@@ -83,7 +87,7 @@ function Landing() {
             <p className="mt-6 max-w-xl text-base text-text-dim md:text-lg">
               AirGrid turns the city's 60-plus government monitors into an intelligence layer:
               a three-day forecast for every ward, the dominant polluter named with
-              evidence and confidence, deployment orders for inspection teams — and
+              evidence and confidence, deployment orders for inspection teams - and
               health advice any family can act on, in English and हिन्दी.
             </p>
 
@@ -111,7 +115,7 @@ function Landing() {
             {/* Coordinate readout */}
             <div className="mono mt-14 grid max-w-xl grid-cols-2 gap-x-8 gap-y-3 border-t border-border pt-6 text-[11px] text-text-mute sm:grid-cols-4">
               <Readout k="Grid" v="1,600 × 1 km²" />
-              <Readout k="Horizon" v="24 / 48 / 72 h" />
+              <Readout k="Horizon" v="Now / 24 / 48 / 72 h" />
               <Readout k="Wards" v="209 named (MCD)" />
               <Readout k="Models" v="3 trained XGBoost" />
             </div>
@@ -136,7 +140,7 @@ function Landing() {
         </div>
       </section>
 
-      {/* Forecast explorer — the prediction, interactive */}
+      {/* Forecast explorer - the prediction, interactive */}
       <ForecastExplorer my={my} />
 
       {/* Attribution section */}
@@ -150,7 +154,7 @@ function Landing() {
             </div>
             <p className="max-w-md text-sm text-text-dim">
               The engine does not average a national blend. It separates traffic, industry,
-              construction dust, and regional biomass burning per cell — and states why.
+              construction dust, and regional biomass burning per cell - and states why.
             </p>
           </div>
 
@@ -166,7 +170,7 @@ function Landing() {
         </div>
       </section>
 
-      {/* VayuMitra — the citizen product, live on the page */}
+      {/* VayuMitra - the citizen product, live on the page */}
       <VayuMitraSection />
 
       {/* Dual audience */}
@@ -189,7 +193,7 @@ function Landing() {
             <AudiencePanel
               tag="Citizen"
               title="Exposure at your address, in plain language."
-              body="Instead of a single color, you get: what tomorrow looks like, which source is driving it, and — if you're in a vulnerable group — what to actually do about it."
+              body="Instead of a single color, you get: what tomorrow looks like, which source is driving it, and - if you're in a vulnerable group - what to actually do about it."
               stat="5"
               statLabel="Personas with tailored guidance"
               cta={{ to: "/health", label: "Health advisory" }}
@@ -239,11 +243,20 @@ function Landing() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Forecast explorer — click a horizon, watch every number move        */
+/* Forecast explorer - click a horizon, watch every number move        */
 /* ------------------------------------------------------------------ */
 
 function ForecastExplorer({ my }: { my: MyWard }) {
-  const [horizon, setHorizon] = useState<Horizon>("24");
+  const [horizon, setHorizon] = useState<HorizonSel>("now");
+
+  // Measured-now AQI per ward, so "Now" on the landing page shows real readings
+  // rather than silently falling back to the +24 h forecast.
+  const liveNow = useQuery(liveQuery);
+  const liveById = useMemo(() => {
+    const m = new Map<string, number>();
+    if (liveNow.data?.available) for (const w of liveNow.data.wards) m.set(w.zone_id, w.aqi);
+    return m;
+  }, [liveNow.data]);
   const live = useQuery(wardsQuery());
   const wards: LiveWard[] | null =
     live.isSuccess && live.data.wards.length > 0 ? live.data.wards : null;
@@ -254,12 +267,19 @@ function ForecastExplorer({ my }: { my: MyWard }) {
       const perH = Object.fromEntries(
         HORIZONS.map((h) => [h, wards.map((w) => wardAqiAt(w, h))]),
       ) as Record<Horizon, number[]>;
-      const trend = Object.fromEntries(HORIZONS.map((h) => [h, mean(perH[h])])) as Record<Horizon, number>;
+      const trend: Partial<Record<HorizonSel, number>> =
+        Object.fromEntries(HORIZONS.map((h) => [h, mean(perH[h])]));
+      // The present joins the trend line only when we actually measured it.
+      if (liveById.size) {
+        trend.now = mean(wards.map((w) => liveById.get(w.zone_id)).filter((v): v is number => typeof v === "number"));
+      }
       const ranked = [...wards]
         .map((w) => ({
           id: w.zone_id,
           name: w.name,
-          value: wardAqiAt(w, horizon),
+          value: isNow(horizon) && liveById.has(w.zone_id)
+            ? liveById.get(w.zone_id)!
+            : wardAqiAt(w, asForecast(horizon)),
           sub: w.dominant_source ?? undefined,
         }))
         .sort((a, b) => b.value - a.value)
@@ -267,7 +287,9 @@ function ForecastExplorer({ my }: { my: MyWard }) {
       return {
         real: live.data!.data_kind === "real",
         unitLabel: `${wards.length} named Delhi wards`,
-        aqis: perH[horizon],
+        aqis: isNow(horizon) && liveById.size
+          ? wards.map((w) => liveById.get(w.zone_id) ?? wardAqiAt(w, "24"))
+          : perH[asForecast(horizon)],
         trend,
         ranked,
       };
@@ -275,15 +297,15 @@ function ForecastExplorer({ my }: { my: MyWard }) {
     const perH = Object.fromEntries(
       HORIZONS.map((h) => [h, CELLS.map((c) => cellAqi(c, h))]),
     ) as Record<Horizon, number[]>;
-    const trend = Object.fromEntries(HORIZONS.map((h) => [h, mean(perH[h])])) as Record<Horizon, number>;
+    const trend = Object.fromEntries(HORIZONS.map((h) => [h, mean(perH[h])])) as Partial<Record<HorizonSel, number>>;
     const ranked = [...CELLS]
-      .map((c) => ({ id: c.id, name: c.ward, value: cellAqi(c, horizon), sub: SOURCE_LABELS[c.dominantSource] }))
+      .map((c) => ({ id: c.id, name: c.ward, value: cellAqi(c, asForecast(horizon)), sub: SOURCE_LABELS[c.dominantSource] }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
-    return { real: false, unitLabel: "sample scene (API warming up)", aqis: perH[horizon], trend, ranked };
-  }, [wards, horizon, live.data]);
+    return { real: false, unitLabel: "sample scene (API warming up)", aqis: perH[asForecast(horizon)], trend, ranked };
+  }, [wards, horizon, live.data, liveById]);
 
-  const avg = view.trend[horizon];
+  const avg = view.trend[horizon] ?? view.trend["24"] ?? 0;
 
   return (
     <section id="forecast" className="border-t border-border bg-bg-secondary">
@@ -295,8 +317,8 @@ function ForecastExplorer({ my }: { my: MyWard }) {
             </h2>
             <p className="mt-4 max-w-2xl text-sm text-text-dim">
               {view.real
-                ? "These are the actual trained-model forecasts for every named Delhi ward — not an illustration. Switch the horizon and every chart re-ranks."
-                : "Live pipeline output for every Delhi ward. If the API is still waking, a labeled sample scene stands in — the interaction is identical."}
+                ? "These are the actual trained-model forecasts for every named Delhi ward - not an illustration. Switch the horizon and every chart re-ranks."
+                : "Live pipeline output for every Delhi ward. If the API is still waking, a labeled sample scene stands in - the interaction is identical."}
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 md:items-end">
@@ -310,10 +332,10 @@ function ForecastExplorer({ my }: { my: MyWard }) {
             <div className="flex items-center gap-4">
               <AqiBall aqi={avg} size={64} />
               <div>
-                <div className="text-lg font-bold">Delhi average · +{horizon} h</div>
+                <div className="text-lg font-bold">Delhi average · {isNow(horizon) ? "measured now" : `+${horizon} h`}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <BandBadge aqi={avg} />
-                  <DeltaTag now={avg} base={view.trend["24"]} />
+                  <DeltaTag now={avg} base={view.trend["24"] ?? avg} />
                 </div>
               </div>
             </div>
@@ -354,7 +376,7 @@ function ForecastExplorer({ my }: { my: MyWard }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* VayuMitra — the citizen assistant, embedded live                    */
+/* VayuMitra - the citizen assistant, embedded live                    */
 /* ------------------------------------------------------------------ */
 
 function VayuMitraSection() {
@@ -364,18 +386,18 @@ function VayuMitraSection() {
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,6fr)_minmax(0,5fr)]">
           <div>
             <h2 className="max-w-xl font-display text-3xl font-semibold md:text-4xl">
-              Meet VayuMitra — the same forecast, speaking your language.
+              Meet VayuMitra - the same forecast, speaking your language.
             </h2>
             <p className="mt-4 max-w-xl text-sm text-text-dim md:text-base">
               Dashboards serve operators. VayuMitra serves everyone else: ask about your ward
-              in English or हिन्दी, by typing or talking, and get advice tuned to who you are —
+              in English or हिन्दी, by typing or talking, and get advice tuned to who you are -
               a parent, an elderly person, an asthmatic, an outdoor worker.
             </p>
             <ul className="mt-6 space-y-3 text-sm text-text-dim">
               {[
                 ["Persona-aware", "“Can my child play outside?” answers differently than “can I go for a run?”"],
-                ["Every answer cited", "CPCB National AQI · SAFAR · WHO 2021 · the active GRAP stage — tappable sources, no invented thresholds."],
-                ["Voice in and out", "Neural speech with pause and stop, mic input — built for low-literacy users, not just app-natives."],
+                ["Every answer cited", "CPCB National AQI · SAFAR · WHO 2021 · the active GRAP stage - tappable sources, no invented thresholds."],
+                ["Voice in and out", "Neural speech with pause and stop, mic input - built for low-literacy users, not just app-natives."],
                 ["Never breaks", "No key → deterministic templates. No data → labeled sample. No network → browser voice."],
               ].map(([t, b]) => (
                 <li key={t} className="flex gap-3">
@@ -402,7 +424,7 @@ function VayuMitraSection() {
             </div>
           </div>
 
-          {/* Live embed in a phone frame — this is the real deployed product */}
+          {/* Live embed in a phone frame - this is the real deployed product */}
           <div className="mx-auto w-full max-w-[380px]">
             <div className="overflow-hidden rounded-[28px] border border-border bg-panel shadow-[0_8px_28px_rgba(9,20,28,0.18)]">
               <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -420,7 +442,7 @@ function VayuMitraSection() {
               />
             </div>
             <p className="mono mt-3 text-center text-[11px] text-text-mute">
-              This is the deployed app, not a mockup — try it right here.
+              This is the deployed app, not a mockup - try it right here.
             </p>
           </div>
         </div>

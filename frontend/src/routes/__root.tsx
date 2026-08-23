@@ -70,19 +70,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "AirGrid NCR — Urban Air Quality Intelligence" },
+      { title: "AirGrid NCR - Urban Air Quality Intelligence" },
       { name: "description", content: "Hyperlocal air quality forecasts for Delhi-NCR with source attribution, wind-corridor evidence, ward-level enforcement priorities, and a multilingual citizen advisory." },
       { name: "author", content: "PS5 Urban Air Quality Intelligence team" },
-      { property: "og:title", content: "AirGrid NCR — Urban Air Quality Intelligence" },
-      { property: "og:description", content: "Which source is polluting you right now, what the air will be in 24–72 hours, where to send inspectors, and what you personally should do — in your language." },
+      { property: "og:title", content: "AirGrid NCR - Urban Air Quality Intelligence" },
+      { property: "og:description", content: "Which source is polluting you right now, what the air will be in 24–72 hours, where to send inspectors, and what you personally should do - in your language." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "AirGrid NCR — Urban Air Quality Intelligence" },
+      { name: "twitter:title", content: "AirGrid NCR - Urban Air Quality Intelligence" },
       { name: "twitter:description", content: "Forecast · Attribution · Enforcement · Citizen advisory. Delhi-NCR, ward by ward." },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      // One system sans family (DESIGN.md One Family Rule) — no webfonts to load.
+      // One system sans family (DESIGN.md One Family Rule) - no webfonts to load.
     ],
   }),
   shellComponent: RootShell,

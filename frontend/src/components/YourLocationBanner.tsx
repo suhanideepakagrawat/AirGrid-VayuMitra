@@ -1,15 +1,15 @@
-// "Your location" — the dashboard's personal strip. Once geolocation resolves,
+// "Your location" - the dashboard's personal strip. Once geolocation resolves,
 // the banner takes the ward's CPCB band color (Legible Band Rule text) and
 // speaks like the advisory: your ward, its AQI, and what to do about it.
 // Severity is the color scheme; the words carry it for color-blind users.
 
 import { useState } from "react";
-import { aqiCategory, type Horizon } from "@/lib/air-data";
+import { aqiCategory, asForecast, isNow, type HorizonSel } from "@/lib/air-data";
 import { wardAqiAt } from "@/lib/api";
 import type { MyWard } from "@/lib/locate";
 
 // Band-level guidance for the general public (CPCB advisories, condensed).
-// VayuMitra gives the persona-specific version — this is the headline.
+// VayuMitra gives the persona-specific version - this is the headline.
 function guidanceFor(aqi: number): { advice: string; acts: string[] } {
   if (aqi <= 100) return { advice: "Air is fine for outdoor activity today.", acts: [] };
   if (aqi <= 200)
@@ -45,7 +45,7 @@ function PinGlyph() {
   );
 }
 
-export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: Horizon }) {
+export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: HorizonSel }) {
   const [dismissed, setDismissed] = useState(false);
   if (dismissed || my.status === "idle" || my.status === "unsupported") return null;
 
@@ -55,10 +55,16 @@ export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: Horiz
       my.status === "locating"
         ? "Finding your ward from your location…"
         : my.status === "denied"
-          ? "Location declined — use the ward search at left to see your area. Nothing is stored either way."
+          ? "Location declined - use the ward search at left to see your area. Nothing is stored either way."
           : my.status === "outside"
-            ? "You're outside Delhi — pick any ward to explore the forecast."
-            : "Couldn't get a location fix — use the ward search at left.";
+            ? `You're outside Delhi${
+                my.coords
+                  ? ` (${my.coords.lat.toFixed(3)}°N, ${my.coords.lon.toFixed(3)}°E${
+                      my.coords.accuracy_m ? `, ±${my.coords.accuracy_m} m` : ""
+                    })`
+                  : ""
+              } - pick any ward to explore the forecast.`
+            : "Couldn't get a location fix - use the ward search at left.";
     return (
       <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-1 px-5 py-2">
         <span className="mono flex items-center gap-2 text-[11.5px] text-text-dim">
@@ -79,7 +85,7 @@ export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: Horiz
   }
 
   const zone = my.zone!;
-  const aqi = wardAqiAt(zone, horizon);
+  const aqi = wardAqiAt(zone, asForecast(horizon));
   const cat = aqiCategory(aqi);
   const g = guidanceFor(aqi);
 
@@ -97,7 +103,7 @@ export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: Horiz
 
       <span className="mono flex items-baseline gap-1.5">
         <span className="text-xl font-bold leading-none">{aqi}</span>
-        <span className="text-[11px] opacity-85">AQI · +{horizon} h</span>
+        <span className="text-[11px] opacity-85">AQI · {isNow(horizon) ? "next 24 h" : `+${horizon} h`}</span>
       </span>
 
       <span
@@ -129,7 +135,7 @@ export function YourLocationBanner({ my, horizon }: { my: MyWard; horizon: Horiz
           className="rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-opacity hover:opacity-85"
           style={{ background: cat.text, color: cat.color }}
         >
-          Personal advice — Ask VayuMitra
+          Personal advice - Ask VayuMitra
         </button>
         <button
           onClick={() => setDismissed(true)}

@@ -532,6 +532,21 @@ def _start_forecast_refresh() -> None:
                     data_mod.load_zones.cache_clear()
                     data_mod.forecast_provenance.cache_clear()
                     print("[forecast-refresh] promoted a new run", flush=True)
+
+                    # Enforcement targets are derived from the forecast, so they go
+                    # stale the moment it moves. Rebuilding them here keeps the
+                    # dispatch queue in step with the AQI it is ranked on, instead
+                    # of quietly ageing until somebody remembers to re-run a script.
+                    targets = _REPO_ROOT / "scripts" / "build_enforcement_targets.py"
+                    if targets.exists():
+                        t = subprocess.run(
+                            [sys.executable, str(targets), "--top", "20"],
+                            cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                            timeout=900,
+                        )
+                        print(f"[enforcement-targets] "
+                              f"{'rebuilt' if t.returncode == 0 else 'skipped'}",
+                              flush=True)
                 else:
                     print(f"[forecast-refresh] skipped (exit {proc.returncode}); "
                           f"existing forecast left untouched", flush=True)

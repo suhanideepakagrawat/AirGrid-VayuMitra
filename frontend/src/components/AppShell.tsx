@@ -48,9 +48,17 @@ export function AppShell({ children, right }: { children: ReactNode; right?: Rea
           {right}
           <div
             className="mono flex items-center gap-2 text-[11px] text-text-dim"
-            title={live ? "Backend API connected" : "Backend unreachable — showing bundled sample data"}
+            title={live ? "Backend API connected" : "Backend unreachable - showing bundled sample data"}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[#009966]" : "bg-[#ff9933]"}`} />
+            {/* A static dot next to "Live API" looks like a label. A pulsing one
+                reads as a heartbeat, which is what it is. Respects
+                prefers-reduced-motion. */}
+            <span className="relative inline-flex h-1.5 w-1.5" aria-hidden="true">
+              {live && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#009966] opacity-70 motion-reduce:animate-none" />
+              )}
+              <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${live ? "bg-[#009966]" : "bg-[#ff9933]"}`} />
+            </span>
             {live ? "Live API" : "Sample data"}
           </div>
         </div>

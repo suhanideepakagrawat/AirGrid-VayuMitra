@@ -28,7 +28,7 @@ type Props = {
   layers?: Partial<LayerToggles>;
   sourceFilter?: SourceKey | "all";
   horizon?: Horizon; // cell intensity follows this horizon's forecast AQI
-  ambient?: boolean; // landing hero mode — no interactions
+  ambient?: boolean; // landing hero mode - no interactions
   height?: number | string;
 };
 
@@ -103,7 +103,7 @@ export function MapView({
         {/* Background dot-grid */}
         <rect width={width} height={heightPx} fill="url(#dotgrid)" />
 
-        {/* Regional/local divider — a subtle boundary at top */}
+        {/* Regional/local divider - a subtle boundary at top */}
         <line
           x1={0}
           y1={PAD - 8}
@@ -149,7 +149,7 @@ export function MapView({
             );
           })}
 
-        {/* Grid cells — intensity tracks the active horizon's forecast AQI,
+        {/* Grid cells - intensity tracks the active horizon's forecast AQI,
             so switching +24/+48/+72 visibly re-lights the map. */}
         {CELLS.map((c) => {
           const cx = PAD + c.x * CELL_W;
@@ -204,7 +204,7 @@ export function MapView({
           );
         })}
 
-        {/* Ward overlay — abstract polygon lines */}
+        {/* Ward overlay - abstract polygon lines */}
         {L.wards && (
           <g stroke="var(--accent-dim)" strokeOpacity="0.35" fill="none" strokeWidth="1">
             {[
@@ -278,7 +278,7 @@ export function MapView({
             );
           })}
 
-        {/* Enforcement markers — triangles, distinct from AQI hues */}
+        {/* Enforcement markers - triangles, distinct from AQI hues */}
         {L.enforcement &&
           enforcementMarkers.map((m) => {
             const size = 4 + (m.priority - 60) / 4;

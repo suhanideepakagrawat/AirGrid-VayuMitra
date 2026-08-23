@@ -1,4 +1,4 @@
-// VayuMitra dock — the live citizen assistant, one tap away on every operator
+// VayuMitra dock - the live citizen assistant, one tap away on every operator
 // page. Slides in from the right; the iframe mounts on first open and stays
 // mounted so the conversation survives closing the panel.
 
@@ -57,7 +57,7 @@ export function VayuMitraDock() {
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>
-            <div className="text-[14px] font-bold">VayuMitra — citizen advisory</div>
+            <div className="text-[14px] font-bold">VayuMitra - citizen advisory</div>
             <div className="text-[11px] text-text-dim">English · हिन्दी · voice · cited to CPCB / SAFAR / WHO / GRAP</div>
           </div>
           <div className="flex items-center gap-1.5">

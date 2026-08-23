@@ -5,13 +5,14 @@ import { AppShell } from "@/components/AppShell";
 import { SourceStrip, BandBadge } from "@/components/charts";
 import { MethodPanel } from "@/components/HowItWorks";
 import { aqiCategory, CELLS, SOURCE_COLORS, SOURCE_LABELS, type SourceKey } from "@/lib/air-data";
+import { DelhiWardMap } from "@/components/DelhiWardMap";
 import { wardsQuery, type LiveWard } from "@/lib/api";
 
 export const Route = createFileRoute("/attribution")({
   head: () => ({
     meta: [
-      { title: "Attribution — AirGrid NCR" },
-      { name: "description", content: "City-wide source attribution across Delhi wards: who is polluting where, with confidence." },
+      { title: "Attribution - AirGrid NCR" },
+      { name: "description", content: "City-wide source attribution across Delhi wards: who is polluting where." },
     ],
   }),
   component: Attribution,
@@ -26,7 +27,7 @@ const LIVE_SOURCE_META: Record<string, { label: string; color: string }> = {
 type MixRow = { key: string; label: string; color: string; pct: number };
 
 function liveMix(wards: LiveWard[]): MixRow[] {
-  // AQI-weighted mean of each ward's source split — loaded wards count more.
+  // AQI-weighted mean of each ward's source split - loaded wards count more.
   const acc: Record<string, number> = { traffic: 0, industry: 0, construction: 0 };
   let weight = 0;
   for (const w of wards) {
@@ -57,7 +58,7 @@ function sampleMix(): MixRow[] {
   }));
 }
 
-/** Mean source mix of wards grouped by CPCB band — the "who pollutes the worst
+/** Mean source mix of wards grouped by CPCB band - the "who pollutes the worst
  *  wards" chart. Only bands with enough wards to mean something are shown. */
 function mixByBand(wards: LiveWard[]): { band: string; color: string; text: string; count: number; mix: MixRow[] }[] {
   const groups = new Map<string, LiveWard[]>();
@@ -106,7 +107,7 @@ function Attribution() {
           id: w.zone_id,
           name: w.name,
           aqi: w.aqi,
-          dominant: w.dominant_source ?? "—",
+          dominant: w.dominant_source ?? "-",
           confidence: w.confidence,
           mix: w.sources
             ? Object.entries(w.sources).map(([k, v]) => ({
@@ -147,7 +148,7 @@ function Attribution() {
         <h1 className="font-display text-3xl">Who is polluting Delhi, ward by ward</h1>
         <p className="mt-2 max-w-2xl text-sm text-text-dim">
           {view.real
-            ? "Live attribution from the trained pipeline — each ward's split of traffic, industry and construction, weighted by how loaded the ward is."
+            ? "Live attribution from the trained pipeline - each ward's split of traffic, industry and construction, weighted by how loaded the ward is."
             : "Aggregated share of forecast AQI by source. Live ward attribution appears here as soon as the API answers."}
         </p>
         <p className="mono mt-1 text-[11px] text-text-mute">{view.unit} · AQI-weighted</p>
@@ -173,7 +174,7 @@ function Attribution() {
 
           <div className="panel p-6">
             <div className="mono text-[11px] text-text-mute">
-              {view.byBand.length ? "Source mix by severity — who runs the worst wards" : "Reading this page"}
+              {view.byBand.length ? "Source mix by severity - who runs the worst wards" : "Reading this page"}
             </div>
             {view.byBand.length ? (
               <ul className="mt-4 space-y-4">
@@ -192,21 +193,42 @@ function Attribution() {
                   </li>
                 ))}
                 <li className="mono pt-1 text-[11px] text-text-mute">
-                  Read down the strips: as wards get worse, watch which color grows — that's the
+                  Read down the strips: as wards get worse, watch which color grows - that's the
                   source enforcement should chase first.
                 </li>
               </ul>
             ) : (
               <p className="mt-4 text-sm text-text-dim">
-                Each ward's forecast is split into source shares with a confidence score.
+                Each ward's forecast is split into source shares.
                 The strips group wards by CPCB band so you can see which source dominates
-                as air gets worse — the signal the enforcement queue is built on.
+                as air gets worse - the signal the enforcement queue is built on.
               </p>
             )}
           </div>
         </div>
 
-        <div className="panel mt-6 p-6">
+        {/* The ten worst wards on the real map, ringed red, beside the same ten in
+            the table. A ranked list answers "which"; the map answers "where", and
+            enforcement needs both. */}
+        <div className="panel mt-6 overflow-hidden p-0">
+          <div className="grid gap-px bg-border lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <div className="bg-panel p-4">
+              <div className="mono mb-2 text-[11px] text-text-mute">
+                Worst 10 wards · ringed in red
+              </div>
+              <div className="h-[300px] md:h-[380px]">
+                <DelhiWardMap
+                  liveWards={wards}
+                  horizon="24"
+                  urgentIds={view.top.map((r) => r.id)}
+                  selectedId={null}
+                />
+              </div>
+              <p className="mono mt-2 text-[11px] text-text-mute">
+                Hover a ward for its name, AQI and dominant source. Use + / &minus; to zoom.
+              </p>
+            </div>
+            <div className="bg-panel p-6">
           <div className="mono text-[11px] text-text-mute">Worst 10 wards · current forecast</div>
           <div className="overflow-x-auto">
             <table className="mono mt-4 w-full min-w-[560px] text-sm">
@@ -216,8 +238,7 @@ function Attribution() {
                   <th className="text-right">AQI</th>
                   <th className="pl-4 text-left">Band</th>
                   <th className="pl-6 text-left">Source mix</th>
-                  <th className="pl-4 text-left">Dominant</th>
-                  <th className="text-right">Confidence</th>
+                  <th className="pl-4 text-left">Dominant source</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,13 +249,12 @@ function Attribution() {
                     <td className="pl-4"><BandBadge aqi={r.aqi} /></td>
                     <td className="pl-6"><div className="w-36"><SourceStrip mix={r.mix} height={10} /></div></td>
                     <td className="pl-4 text-text-dim">{r.dominant}</td>
-                    <td className="text-right text-accent">
-                      {r.confidence != null ? `${Math.round((r.confidence as number) * 100)}%` : "—"}
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+            </div>
           </div>
         </div>
 

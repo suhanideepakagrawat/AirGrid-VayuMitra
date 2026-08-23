@@ -1,8 +1,8 @@
-// The "find my ward" affordance — one pill that walks through the whole
+// The "find my ward" affordance - one pill that walks through the whole
 // geolocation story: ask → locating → found (with live AQI + a warning when
 // the user's own air is bad) → or an honest denied/outside message.
 
-import { aqiCategory, type Horizon } from "@/lib/air-data";
+import { aqiCategory, asForecast, type HorizonSel } from "@/lib/air-data";
 import { wardAqiAt } from "@/lib/api";
 import type { MyWard } from "@/lib/locate";
 
@@ -24,7 +24,7 @@ export function MyWardChip({
   onGo,
 }: {
   my: MyWard;
-  horizon: Horizon;
+  horizon: HorizonSel;
   onGo?: () => void;
 }) {
   if (my.status === "unsupported") return null;
@@ -34,7 +34,7 @@ export function MyWardChip({
       <button
         onClick={my.request}
         className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-accent-dim px-3.5 py-1.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent hover:text-white"
-        title="Uses your browser location once to find your MCD ward — nothing is stored."
+        title="Uses your browser location once to find your MCD ward - nothing is stored."
       >
         <PinGlyph />
         {my.status === "error" ? "Retry my location" : "Use my location"}
@@ -54,7 +54,7 @@ export function MyWardChip({
   if (my.status === "denied") {
     return (
       <span className="mono text-[11.5px] text-text-mute" title="Enable location for this site in your browser to use this.">
-        Location blocked — use the ward search instead.
+        Location blocked - use the ward search instead.
       </span>
     );
   }
@@ -62,14 +62,14 @@ export function MyWardChip({
   if (my.status === "outside") {
     return (
       <span className="mono text-[11.5px] text-text-mute">
-        You're outside Delhi — pick any ward to explore.
+        You're outside Delhi{my.coords ? ` (${my.coords.lat.toFixed(3)}°N, ${my.coords.lon.toFixed(3)}°E${my.coords.accuracy_m ? `, ±${my.coords.accuracy_m} m` : ""})` : ""} - pick any ward to explore.
       </span>
     );
   }
 
   // found
   const zone = my.zone!;
-  const aqi = wardAqiAt(zone, horizon);
+  const aqi = wardAqiAt(zone, asForecast(horizon));
   const cat = aqiCategory(aqi);
   const risky = aqi > 200;
   return (
@@ -93,7 +93,7 @@ export function MyWardChip({
       )}
       {risky && (
         <span className="mono text-[11.5px] font-bold" style={{ color: "var(--aqi-very-poor)" }}>
-          {cat.label} in your ward — limit outdoor time
+          {cat.label} in your ward - limit outdoor time
         </span>
       )}
     </span>

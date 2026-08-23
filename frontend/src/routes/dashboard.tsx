@@ -149,7 +149,7 @@ function Dashboard() {
           the map and the rail slid away above a tall sidebar, leaving the blank
           band below them. Each pane owns its own scrollbar instead, so nothing
           is unreachable and nothing scrolls into emptiness. */}
-      <div className="flex flex-col md:h-[calc(100vh-57px)] md:overflow-hidden">
+      <div className="flex flex-col pb-16 md:h-[calc(100vh-57px)] md:overflow-hidden md:pb-0">
         {/* Provenance first: the live reading and the forecast run are different
             kinds of number, and the page says so before showing either. */}
         <DataFreshness className="mx-4 mt-3" />
@@ -157,6 +157,7 @@ function Dashboard() {
           horizon={horizon}
           onHorizon={setHorizon}
           liveWards={liveWards}
+          liveAqi={liveAqi}
           dataKind={live.isSuccess ? live.data.data_kind : null}
           showMethod={showMethod}
           onToggleMethod={() => setShowMethod((s) => !s)}
@@ -172,7 +173,7 @@ function Dashboard() {
           {/* Sidebar */}
           {/* Visible on phones as well: hiding the ward list below md removed the
               only way to find your own ward on the device most judges will use. */}
-          <aside className="order-2 overflow-y-auto border-b border-border bg-bg-secondary md:order-none md:min-h-0 md:border-b-0 md:border-r">
+          <aside className="order-2 max-h-[70vh] overflow-y-auto overscroll-contain border-b border-border bg-bg-secondary md:order-none md:max-h-none md:min-h-0 md:border-b-0 md:border-r">
             <WardFinder
               horizon={horizon}
               liveWards={liveWards}
@@ -295,17 +296,15 @@ function Dashboard() {
                     ? `209 real wards · click any ward · ${isNow(horizon) ? "measured now" : `+${horizon} h · ${HORIZON_LABEL[horizon as Horizon].toLowerCase()}`}`
                     : `Sample evidence scene · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
                 </div>
-                {/* The red fill is a RANK overlay, not a CPCB band - it deliberately
-                    overrides the band colour for the 10 wards at the top of the
-                    queue. Saying so here keeps the map honest at a glance. */}
+                {/* Colour is the CPCB band and nothing else, so the legend only has
+                    to explain the outline. */}
                 {mapMode === "wards" && liveWards && urgentWardIds.length > 0 && (
                   <div className="mono flex items-center gap-1.5 text-[11px] text-text-mute">
                     <span
-                      className="inline-block h-2.5 w-2.5 rounded-[2px]"
-                      style={{ background: "var(--aqi-very-poor)" }}
+                      className="inline-block h-2.5 w-2.5 rounded-[2px] border-2 border-[#111827] bg-transparent"
                     />
                     <span>
-                      Worst {urgentWardIds.length} wards {isNow(horizon) ? "now" : `at +${horizon} h`} - rank, not band
+                      Outlined = worst {urgentWardIds.length} {isNow(horizon) ? "now" : `at +${horizon} h`} · fill = CPCB band
                     </span>
                   </div>
                 )}
@@ -342,6 +341,7 @@ function PulseStrip({
   horizon,
   onHorizon,
   liveWards,
+  liveAqi,
   dataKind,
   showMethod,
   onToggleMethod,
@@ -349,6 +349,10 @@ function PulseStrip({
   horizon: HorizonSel;
   onHorizon: (h: HorizonSel) => void;
   liveWards: LiveWard[] | null;
+  /** Measured AQI per ward. Without it the strip fell back to +24 h and reported
+   *  a forecast average under a "measured now" caption - the page showed two
+   *  different numbers for the same instant (62 beside 141). */
+  liveAqi: Map<string, number>;
   dataKind: string | null;
   showMethod: boolean;
   onToggleMethod: () => void;
@@ -359,7 +363,12 @@ function PulseStrip({
         HORIZONS.map((h) => [h, liveWards.map((w) => wardAqiAt(w, h))]),
       ) as Record<Horizon, number[]>;
       const mean = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / (xs.length || 1));
-      const aqis = perHorizon[asForecast(horizon)];
+      // "Now" is a measurement, not the +24 h forecast. Reading it off the same
+      // map every other panel uses is what keeps the average, the worst ward, the
+      // band census and the map itself telling one story.
+      const aqis = isNow(horizon)
+        ? liveWards.map((w) => aqiForSel(w, "now", liveAqi))
+        : perHorizon[asForecast(horizon)];
       const worstIdx = aqis.indexOf(Math.max(...aqis));
       return {
         aqis,
@@ -384,7 +393,7 @@ function PulseStrip({
       unit: "cells",
       count: CELLS.length,
     };
-  }, [liveWards, horizon]);
+  }, [liveWards, horizon, liveAqi]);
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border bg-panel px-5 py-3">

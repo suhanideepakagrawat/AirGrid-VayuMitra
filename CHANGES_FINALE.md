@@ -683,3 +683,88 @@ scroll). 20/20 tests, five routes x three viewports, zero JS errors, zero horizo
 overflow, no `+nowh` anywhere.
 
 **Files.** `frontend/src/routes/dashboard.tsx`, `frontend/src/components/charts.tsx`.
+
+---
+
+## B16 - Data audit: five defects, found by checking numbers instead of pixels (24 Aug 2026)
+
+Reported from the live site: the dashboard read far higher than the other tabs,
+high-AQI wards were yellow while low-AQI wards were red, and the ranking looked
+wrong. All of it was real. Previous rounds verified that pages *rendered*; none
+verified that the numbers were *sane*. These were found by comparing every surface
+against `/live` and against the weather.
+
+### 1. The page showed two different numbers for the same instant
+
+`PulseStrip` never received the measured layer, so with **Now** selected it fell back
+to `asForecast("now") = "24"` and reported the **+24 h forecast** under a "measured
+now" caption. The header strip said 141; the strip beneath it said 62. The band
+census, the worst-ward name and the delta were all forecast numbers too, while the
+map beside them painted live values. Fixed by passing `liveAqi` in and reading it
+when the horizon is "now".
+
+### 2. A ward's AQI contradicted its own pollutant panel
+
+`_interpolate` blended station **AQIs** by IDW while blending **concentrations**
+separately - and each pollutant carried its own weight sum, since a station missing
+PM10 contributes to PM2.5 but not to PM10. AQI is a max-of-sub-indices and is not
+linear in concentration, so the two answers diverged. One ward card read *"AQI 36 ·
+driven by PM10 · PM10 144 µg/m³"* - and 144 µg/m³ of PM10 **is** 130 on the CPCB
+scale. **56 of 209 wards disagreed with their own numbers, by up to 117 points.**
+
+Now the concentrations are interpolated and the CPCB formula is applied once, to
+them. Disagreement: **0 of 209**. This also repaired the ranking, which had been
+sorting on a number the cards never showed.
+
+### 3. Red meant rank, so clean wards were red and dirty wards were yellow
+
+The worst-10 overlay painted wards solid red *over* the CPCB band colour. On a day
+when nothing exceeded "Poor", the ten worst wards went red while genuinely worse air
+elsewhere stayed yellow - the map contradicted its own legend, exactly as reported.
+
+**One rule now, everywhere: fill is the CPCB band, outline is dispatch priority.**
+Colour means air quality and nothing else, on all three maps. Bad air is red because
+CPCB says it is, not because we ranked it. Today's worst ward is 267 - "Poor",
+orange - and the map says orange.
+
+### 4. "Measured 44m ago" was measured 3 hours ago
+
+`data_age_hours` reported `min(ages)` - the single freshest station - as the age of
+the whole layer, and `observed_at` took the newest timestamp. The typical station was
+**3.3 h** old and the oldest **4.8 h**.
+
+This mattered today. Open-Meteo shows rain beginning at **00:00 IST** (8.4 mm, RH
+96-99%), and most readings predated it: the layer was showing pre-rain pollution
+stamped "44m ago". Now the layer reports the **median** station's timestamp and age,
+with `data_age_hours_newest` / `_oldest` alongside. The badge reads "3h ago", which
+is what it is.
+
+### 5. Stale stations counted as fully as fresh ones
+
+`FRESH_HOURS = 6.0` admits a reading that spans a full diurnal swing and any passing
+weather system. Lowered to **4.0** (62 stations → 50), and IDW now weights by
+recency as well as distance (`1/(1+age_h)`): across a weather change an older reading
+is not less precise, it describes a different atmosphere.
+
+**On "the dashboard is inflated".** After all five fixes the measured average is 140
+and the forecast average is 71. Both are real: the forecast targets 12:30 IST
+tomorrow, the measurement is 02:00 IST tonight, and Delhi PM10 is far higher at night
+when the boundary layer collapses. The dashboard was never inflating - it was
+*mislabelling*, showing one layer under the other's caption and hiding how old the
+readings were. The remaining gap is genuine and now legible: "140 measured 3h ago"
+beside "▲ 78 worse vs tomorrow".
+
+### 6. Mobile
+
+The sidebar got its own scrollbar on desktop but not on a phone, where it ran to full
+height. Now bounded to 70vh with `overscroll-contain`, matching desktop. Page padded
+so the chat dock stops covering the last rows.
+
+**Verification.** Every dashboard surface cross-checked against `/live` in the same
+render: header 140 / I.P Extention 267, pulse strip 140, census 26+167+16 = 209, age
+badge "3h ago" - all matching the endpoint exactly, on desktop and phone. 20/20
+tests, five routes x two viewports, zero JS errors, zero horizontal overflow.
+
+**Files.** `advisory/live.py`, `advisory/openaq.py`,
+`frontend/src/routes/dashboard.tsx`, `frontend/src/routes/enforcement.tsx`,
+`frontend/src/components/DelhiWardMap.tsx`.

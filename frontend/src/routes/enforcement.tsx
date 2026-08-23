@@ -167,9 +167,9 @@ function Enforcement() {
           {sorted.length > 0 && wards.isSuccess ? (
             <>
               {/* The map answers the same question as the list beside it: where do
-                  we go first. Wards holding a ranked source are painted solid red -
-                  a dispatch overlay, not a CPCB band - and numbered with that
-                  source's rank. */}
+                  we go first. Wards holding a ranked source are OUTLINED and
+                  numbered with that source's rank; the fill stays the CPCB band, so
+                  a clean ward with a source on it never reads as bad air. */}
               <DelhiWardMap
                 liveWards={wards.data.wards}
                 horizon="24"
@@ -181,12 +181,9 @@ function Enforcement() {
               <div className="pointer-events-none absolute left-4 top-4 flex flex-col items-start gap-2">
                 <div className="chip">Real Delhi wards · numbers = dispatch rank · click a ward to find it in the queue</div>
                 <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-panel px-2.5 py-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-[2px]"
-                    style={{ background: "var(--aqi-very-poor)" }}
-                  />
+                  <span className="inline-block h-2.5 w-2.5 rounded-[2px] border-2 border-[#111827] bg-transparent" />
                   <span className="mono text-[11px] text-text-dim">
-                    {dispatchWardIds.length} wards with a ranked source - dispatch first
+                    Outlined = {dispatchWardIds.length} wards with a ranked source · fill = CPCB band
                   </span>
                 </div>
               </div>

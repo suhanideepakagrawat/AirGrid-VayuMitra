@@ -74,7 +74,11 @@ PARAMS: dict[int, tuple[str, float]] = {
 MET_PARAMS: dict[int, str] = {22: "wind_direction", 34: "wind_speed"}
 
 # A station is "live" if it reported within this window.
-FRESH_HOURS = 6.0
+# A reading this old is not "live". Six hours spans a full diurnal swing and any
+# passing weather system, so a stale station can hold the city at yesterday
+# evening's pollution long after rain has washed it out. Four still tolerates the
+# slower CPCB feeds while keeping the layer describing today's atmosphere.
+FRESH_HOURS = 4.0
 
 _LOCATIONS_TTL = 3600.0     # station metadata barely changes
 _LATEST_TTL = 600.0         # readings are hourly; 10 min is plenty

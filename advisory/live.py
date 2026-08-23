@@ -208,16 +208,30 @@ def _interpolate(ward_lat: float, ward_lon: float, scored: list[dict]) -> dict |
     pol_acc: dict[str, float] = {}
     pol_w: dict[str, float] = {}
     for d, s in near:
-        w = 1.0 / (d ** IDW_POWER)
+        # Distance is not the only thing that makes a reading relevant. Stations
+        # report on their own schedules, so a ward can sit between one reading taken
+        # minutes ago and another taken hours ago - and across a weather change (a
+        # thunderstorm, a wind shift) the older one is not merely less precise, it
+        # describes a different atmosphere. Recency joins distance in the weight.
+        age = float(s.get("age_hours") or 0.0)
+        w = (1.0 / (d ** IDW_POWER)) * (1.0 / (1.0 + age))
         wsum += w
         aqi_acc += w * s["aqi"]
         for p, v in (s.get("pollutants") or {}).items():
             pol_acc[p] = pol_acc.get(p, 0.0) + w * float(v)
             pol_w[p] = pol_w.get(p, 0.0) + w
 
-    aqi = aqi_acc / wsum
     pollutants = {p: round(pol_acc[p] / pol_w[p], 1) for p in pol_acc}
+
+    # Interpolate the CONCENTRATIONS, then apply the CPCB formula once - do not
+    # interpolate the AQI itself. AQI is a max-of-sub-indices, so it is not linear
+    # in concentration, and each pollutant carries its own weight sum here (a
+    # station missing PM10 contributes to PM2.5 but not to PM10). Blending the two
+    # independently let a ward report "AQI 36, driven by PM10" next to a PM10 of
+    # 144 ug/m3, which is 130 on the CPCB scale. 56 of 209 wards disagreed with
+    # their own pollutant panel by more than 15 points, up to 117.
     driver = station_aqi(pollutants)
+    aqi = driver[0] if driver else aqi_acc / wsum
     return {"aqi": round(aqi, 1),
             "dominant_pollutant": driver[1] if driver else near[0][1]["dominant_pollutant"],
             "pollutants": pollutants,
@@ -300,16 +314,25 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
             "fingerprint": got.get("fingerprint"),
         })
 
-    ages = [s.get("age_hours") for s in stations if s.get("age_hours") is not None]
-    newest = max((s.get("observed_at") or "") for s in stations) or None
+    ages = sorted(s.get("age_hours") for s in stations if s.get("age_hours") is not None)
+    stamps = sorted(s.get("observed_at") or "" for s in stations if s.get("observed_at"))
+    newest = stamps[-1] if stamps else None
+    # The layer is only as current as its TYPICAL station, not its luckiest one.
+    # Reporting min(ages) stamped the whole city "measured 26m ago" while half the
+    # readings were over three hours old - which matters enormously when the
+    # weather turns between the two.
+    typical = stamps[len(stamps) // 2] if stamps else None
     result = {
         "available": True,
         "source": "OpenAQ v3 — CPCB / DPCC / IMD / IITM / HSPCB ground stations",
         "method": (f"CPCB National AQI per station, then inverse-distance weighting "
                    f"(k={IDW_K}, power={IDW_POWER:g}) onto ward centroids"),
         "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "observed_at": newest,
-        "data_age_hours": round(min(ages), 2) if ages else None,
+        "observed_at": typical,
+        "observed_at_newest": newest,
+        "data_age_hours": round(ages[len(ages) // 2], 2) if ages else None,
+        "data_age_hours_newest": round(ages[0], 2) if ages else None,
+        "data_age_hours_oldest": round(ages[-1], 2) if ages else None,
         "stations": len(scored),
         "stations_fetched": len(stations),
         # Surfaced rather than hidden: a reader can see exactly which readings we

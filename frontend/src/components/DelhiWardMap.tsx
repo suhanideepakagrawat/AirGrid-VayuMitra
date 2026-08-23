@@ -34,9 +34,10 @@ export function DelhiWardMap({
   /** Measured AQI per ward. When horizon is "now" the map paints these instead of
    *  the forecast, so the control actually changes what the city looks like. */
   liveAqi?: Map<string, number>;
-  /** Wards to paint solid red - the ones authorities should go to first. This is a
-   *  RANK overlay, not an AQI band: it deliberately overrides the band colour so a
-   *  dispatch list is readable across a room. Always label it in the legend. */
+  /** Wards to mark as "go here first". Drawn as a heavy outline, never as a fill:
+   *  fill is reserved for the CPCB band, so colour always means air quality and
+   *  nothing else. Painting rank into the fill made clean wards red and left
+   *  genuinely bad ones yellow - the map contradicted its own legend. */
   urgentIds?: string[];
   selectedId?: string | null;
   /** The user's own ward (from geolocation) - gets a "you are here" pin. */
@@ -115,23 +116,20 @@ export function DelhiWardMap({
             <path
               key={s.id + s.name}
               d={s.d}
-              fill={
-                urgent.has(s.id) ? "var(--aqi-very-poor)"
-                  : cat ? cat.color
-                  : "var(--surface-2)"
-              }
+              // Fill is ALWAYS the CPCB band: red means bad air, green means clean
+              // air, on every map in the product. Rank rides on the outline.
+              fill={cat ? cat.color : "var(--surface-2)"}
               fillOpacity={
-                urgent.has(s.id) ? (ambient ? 0.7 : isHover || isSel ? 1 : 0.92)
-                  : cat ? (ambient ? 0.5 : isHover || isSel ? 0.95 : 0.72)
+                cat ? (ambient ? 0.5 : isHover || isSel ? 0.98 : urgent.has(s.id) ? 0.95 : 0.78)
                   : 0.45
               }
               stroke={
                 isSel ? "var(--accent)"
-                  : urgent.has(s.id) ? "var(--aqi-severe)"
+                  : urgent.has(s.id) ? "#111827"
                   : isHover ? "var(--accent-dim)"
                   : "var(--panel)"
               }
-              strokeWidth={isSel ? 2.5 : urgent.has(s.id) ? 2.6 : isHover ? 1.8 : 0.7}
+              strokeWidth={isSel ? 2.5 : urgent.has(s.id) ? 2.4 : isHover ? 1.8 : 0.7}
               style={{ transition: "fill 0.3s ease-out, fill-opacity 0.2s ease-out", cursor: !ambient && live && onPick ? "pointer" : "default" }}
               onMouseEnter={() => !ambient && setHoverId(s.id)}
               onMouseLeave={() => !ambient && setHoverId(null)}

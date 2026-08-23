@@ -353,7 +353,9 @@ function ForecastExplorer({ my }: { my: MyWard }) {
 
           <div className="panel p-6">
             <div className="mb-4 flex items-baseline justify-between">
-              <h3 className="text-[14px] font-bold">Worst first · +{horizon} h</h3>
+              <h3 className="text-[14px] font-bold">
+                Worst first · {isNow(horizon) ? "measured now" : `+${horizon} h`}
+              </h3>
               <span className="mono text-[11px] text-text-mute">
                 {view.real ? "live pipeline" : "sample"} · dominant source at right
               </span>

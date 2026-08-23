@@ -832,3 +832,44 @@ matching the endpoint exactly. Per-ward: Bawana 90 vs forecast 102, Ashok Vihar 
 
 **Files.** `advisory/live.py`, `advisory/openaq.py`,
 `frontend/src/components/DataFreshness.tsx`, `frontend/src/lib/api.ts`.
+
+---
+
+## B18 - One horizon control on every map, and no holes left in the city (24 Aug 2026)
+
+**1. Attribution and Enforcement now carry the horizon control.** Both hardcoded
+`horizon="24"` and said nothing about it, so a reader comparing them with the
+dashboard's "Now" was comparing two different instants and concluding the numbers
+disagreed. Both now have the same Now / +24 / +48 / +72 switch, default **Now**, with
+the basis spelled out beside it ("AQI measured now (CPCB 24 h basis)"). On attribution
+the switch drives the map, the worst-10 table *and* the band grouping in "source mix
+by severity", so the whole page moves together; on enforcement it drives the ward
+colouring while the dispatch ranking stays put, which is what it ranks on. Verified by
+clicking: Now puts Kashmere Gate at 146 on top, +72 h puts Sangam Park at 117.
+
+**2. The dashboard map's three caption lines are gone**, as asked - "209 real wards ·
+click any ward", "Grey = ward outside the 209 we model", "Outlined = worst 10 now".
+
+**3. No grey wards left.** The shapefile carries 287 MCD wards and the pipeline models
+209; the other 78 rendered grey and read as a hole in the map. They are filled by
+inverse-distance weighting over their three nearest modelled neighbours - the same
+k=3, power-2 IDW the live layer already uses to carry stations onto ward centroids, so
+this is one documented method rather than a second invented one. Centroids are in SVG
+space, but the projection is affine over an area this small, so nearest-in-SVG and
+nearest-on-the-ground agree, and only the ordering matters.
+
+The qualifier travels with the number instead of sitting in a legend the reader has to
+remember: hovering an interpolated ward reads *"estimated from neighbouring wards"*
+where a modelled ward names its dominant source. All 290 shapes are now painted at
+every horizon.
+
+**4. The landing page said "Worst first · +now h".** Now is a measurement, not an
+offset; it reads "Worst first · measured now".
+
+**Verification.** 20/20 tests. Five routes x two viewports, zero JS errors, zero
+horizontal overflow. Horizon switch present on all four map pages; grey ward count 0
+on every one; none of the three removed captions found anywhere; no "+now h".
+
+**Files.** `frontend/src/components/DelhiWardMap.tsx`,
+`frontend/src/routes/attribution.tsx`, `frontend/src/routes/enforcement.tsx`,
+`frontend/src/routes/dashboard.tsx`, `frontend/src/routes/index.tsx`.

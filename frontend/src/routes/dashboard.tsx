@@ -291,35 +291,6 @@ function Dashboard() {
                     ))}
                   </div>
                 )}
-                <div className="mono text-[11px] text-text-mute">
-                  {mapMode === "wards" && liveWards
-                    ? `209 real wards · click any ward · ${isNow(horizon) ? "measured now" : `+${horizon} h · ${HORIZON_LABEL[horizon as Horizon].toLowerCase()}`}`
-                    : `Sample evidence scene · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
-                </div>
-                {/* The shapefile carries all 287 MCD wards; the pipeline covers 209 of
-                    them. The rest render grey, and saying so turns an obvious
-                    question into an answered one. */}
-                {mapMode === "wards" && liveWards && (
-                  <div className="mono flex items-center gap-1.5 text-[11px] text-text-mute">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-[2px]"
-                      style={{ background: "var(--surface-2)" }}
-                    />
-                    <span>Grey = ward outside the 209 we model</span>
-                  </div>
-                )}
-                {/* Colour is the CPCB band and nothing else, so the legend only has
-                    to explain the outline. */}
-                {mapMode === "wards" && liveWards && urgentWardIds.length > 0 && (
-                  <div className="mono flex items-center gap-1.5 text-[11px] text-text-mute">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-[2px] border-2 border-[#111827] bg-transparent"
-                    />
-                    <span>
-                      Outlined = worst {urgentWardIds.length} {isNow(horizon) ? "now" : `at +${horizon} h`} · fill = CPCB band
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
 

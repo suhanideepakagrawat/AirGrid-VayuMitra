@@ -5,9 +5,17 @@ import { AppShell } from "@/components/AppShell";
 import { DelhiWardMap } from "@/components/DelhiWardMap";
 import { MapView } from "@/components/MapView";
 import { MethodPanel } from "@/components/HowItWorks";
-import { aqiCategory, CELLS, type Cell } from "@/lib/air-data";
+import { HorizonSwitch } from "@/components/charts";
+import {
+  aqiCategory,
+  CELLS,
+  isNow,
+  type Cell,
+  type HorizonSel,
+} from "@/lib/air-data";
 import {
   enforcementSourcesQuery,
+  liveQuery,
   topTargetsQuery,
   wardsQuery,
 } from "@/lib/api";
@@ -42,6 +50,15 @@ export const Route = createFileRoute("/enforcement")({
 
 function Enforcement() {
   const wards = useQuery(wardsQuery());
+  const nowQ = useQuery(liveQuery);
+  // The map here painted the +24 h forecast with nothing saying so. Same control as
+  // the dashboard, same default, so the three tabs can be read against each other.
+  const [horizon, setHorizon] = useState<HorizonSel>("now");
+  const liveAqi = useMemo(() => {
+    const m = new Map<string, number>();
+    if (nowQ.data?.available) for (const w of nowQ.data.wards) m.set(w.zone_id, w.aqi);
+    return m;
+  }, [nowQ.data]);
   const [showMethod, setShowMethod] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -172,13 +189,20 @@ function Enforcement() {
                   a clean ward with a source on it never reads as bad air. */}
               <DelhiWardMap
                 liveWards={wards.data.wards}
-                horizon="24"
+                horizon={horizon}
+                liveAqi={liveAqi}
                 urgentIds={dispatchWardIds}
                 onPick={(w) => setQuery(w.name)}
                 badges={rankBadges}
                 className="p-2"
               />
               <div className="pointer-events-none absolute left-4 top-4 flex flex-col items-start gap-2">
+                <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+                  <HorizonSwitch value={horizon} onChange={setHorizon} compact />
+                  <span className="chip">
+                    Ward colour = AQI {isNow(horizon) ? "measured now" : `forecast +${horizon} h`}
+                  </span>
+                </div>
                 <div className="chip">Real Delhi wards · numbers = dispatch rank · click a ward to find it in the queue</div>
                 <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-panel px-2.5 py-1">
                   <span className="inline-block h-2.5 w-2.5 rounded-[2px] border-2 border-[#111827] bg-transparent" />

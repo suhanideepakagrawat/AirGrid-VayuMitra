@@ -88,7 +88,41 @@ export function DelhiWardMap({
     return m;
   }, [badges]);
 
+  // The shapefile carries all 287 MCD wards; the pipeline models 209. The other 78
+  // used to render grey, which read as a hole in the map. They are filled by inverse
+  // distance weighting over their three nearest modelled neighbours - the same k=3,
+  // power-2 IDW the live layer already uses to carry stations onto ward centroids,
+  // so it is one documented method rather than a second invented one.
+  //
+  // Centroids are in SVG space, not degrees. The projection is affine over an area
+  // this small, so "nearest in SVG space" and "nearest on the ground" agree; only
+  // the ordering matters here, never the distance in kilometres.
+  const estimated = useMemo(() => {
+    const out = new Map<string, number>();
+    const known = GEO.wards
+      .map((s) => ({ s, w: byId.get(s.id) }))
+      .filter((x): x is { s: WardShape; w: LiveWard } => Boolean(x.w));
+    if (known.length < 3) return out;
+    for (const s of GEO.wards) {
+      if (byId.has(s.id)) continue;
+      const near = known
+        .map(({ s: k, w }) => ({ d: Math.hypot(k.cx - s.cx, k.cy - s.cy), w }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 3);
+      let num = 0;
+      let den = 0;
+      for (const { d, w } of near) {
+        const weight = 1 / Math.max(d, 1) ** 2;
+        num += weight * aqiOf(w);
+        den += weight;
+      }
+      if (den > 0) out.set(s.id, Math.round(num / den));
+    }
+    return out;
+  }, [byId, horizon, liveAqi]);
+
   const hovered = hoverId ? byId.get(hoverId) : null;
+  const hoveredEst = hoverId && !hovered ? estimated.get(hoverId) : undefined;
   const hoveredShape = hoverId ? GEO.wards.find((s) => s.id === hoverId) : null;
 
   return (
@@ -109,9 +143,10 @@ export function DelhiWardMap({
       >
         {GEO.wards.map((s) => {
           const live = byId.get(s.id);
+          const est = live ? undefined : estimated.get(s.id);
           const isSel = selectedId === s.id;
           const isHover = hoverId === s.id;
-          const cat = live ? aqiCategory(aqiOf(live)) : null;
+          const cat = live ? aqiCategory(aqiOf(live)) : est !== undefined ? aqiCategory(est) : null;
           return (
             <path
               key={s.id + s.name}
@@ -209,7 +244,7 @@ export function DelhiWardMap({
       )}
 
       {/* Hover card - name, AQI, band, dominant source */}
-      {!ambient && hovered && hoveredShape && (
+      {!ambient && (hovered || hoveredEst !== undefined) && hoveredShape && (
         <div
           className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-md border border-border bg-panel px-3 py-2 shadow-[0_2px_8px_rgba(9,20,28,0.12)]"
           style={{
@@ -217,22 +252,36 @@ export function DelhiWardMap({
             top: `calc(${(hoveredShape.cy / GEO.h) * 100}% - 56px)`,
           }}
         >
-          <div className="flex items-center gap-2 whitespace-nowrap">
-            <span className="text-[12.5px] font-bold">{hovered.name}</span>
-            <span
-              className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
-              style={{
-                background: aqiCategory(aqiOf(hovered)).color,
-                color: aqiCategory(aqiOf(hovered)).text,
-              }}
-            >
-              {aqiOf(hovered)}
-            </span>
-          </div>
-          <div className="mono mt-0.5 whitespace-nowrap text-[11px] text-text-mute">
-            {aqiCategory(aqiOf(hovered)).label}
-            {hovered.dominant_source ? ` · ${hovered.dominant_source}` : ""}
-          </div>
+          {(() => {
+            // One card for both kinds of ward. An interpolated ward says so on its
+            // own card rather than in a legend, so the qualifier travels with the
+            // number instead of sitting somewhere the reader has to remember.
+            const value = hovered ? aqiOf(hovered) : (hoveredEst as number);
+            const cat = aqiCategory(value);
+            return (
+              <>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-[12.5px] font-bold">
+                    {hovered ? hovered.name : hoveredShape.name}
+                  </span>
+                  <span
+                    className="mono rounded-md px-1.5 py-0.5 text-[11px] font-bold"
+                    style={{ background: cat.color, color: cat.text }}
+                  >
+                    {value}
+                  </span>
+                </div>
+                <div className="mono mt-0.5 whitespace-nowrap text-[11px] text-text-mute">
+                  {cat.label}
+                  {hovered
+                    ? hovered.dominant_source
+                      ? ` · ${hovered.dominant_source}`
+                      : ""
+                    : " · estimated from neighbouring wards"}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

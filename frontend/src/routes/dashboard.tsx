@@ -16,6 +16,8 @@ import {
 } from "@/components/charts";
 import { MethodPanel } from "@/components/HowItWorks";
 import { YourLocationBanner } from "@/components/YourLocationBanner";
+import { DataFreshness } from "@/components/DataFreshness";
+import { liveQuery, timeAgo, type LiveNowWard } from "@/lib/api";
 import { useMyWard } from "@/lib/locate";
 import {
   aqiCategory,
@@ -25,7 +27,6 @@ import {
   SOURCE_COLORS,
   SOURCE_EVIDENCE,
   SOURCE_LABELS,
-  ENFORCEMENT_TARGETS,
   type Cell,
   type Horizon,
   type SourceKey,
@@ -98,6 +99,9 @@ function Dashboard() {
   return (
     <AppShell>
       <div className="flex h-[calc(100vh-57px)] flex-col">
+        {/* Provenance first: the live reading and the forecast run are different
+            kinds of number, and the page says so before showing either. */}
+        <DataFreshness className="mx-4 mt-3" />
         <PulseStrip
           horizon={horizon}
           onHorizon={setHorizon}
@@ -505,6 +509,69 @@ const detailGrid =
 /* Ward detail — a REAL ward: live forecast, sources, deployment       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * What the instruments actually read for this ward in the last hour.
+ *
+ * Sits directly above the forecast so the two are never conflated: this is a
+ * measurement, the ball beside it is a prediction. Names the contributing station
+ * and its distance, because a ward 8 km from the nearest monitor deserves less
+ * confidence than one sitting on top of it — and hiding that would be the dishonest
+ * choice.
+ */
+function LiveNowBlock({ zoneId }: { zoneId: string }) {
+  const live = useQuery(liveQuery);
+  const row: LiveNowWard | undefined = live.data?.available
+    ? live.data.wards.find((w) => w.zone_id === zoneId)
+    : undefined;
+
+  if (!row) {
+    return (
+      <div className="mt-4 rounded-md border border-border bg-panel p-3">
+        <div className="mono text-[11px] text-text-mute">MEASURED NOW</div>
+        <div className="mt-1 text-[12px] text-text-dim">
+          {live.data?.state === "warming"
+            ? "fetching station readings…"
+            : "no live station reading for this ward"}
+        </div>
+      </div>
+    );
+  }
+
+  const pm25 = row.pollutants?.pm25;
+  const pm10 = row.pollutants?.pm10;
+
+  return (
+    <div className="mt-4 rounded-md border border-border bg-panel p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="mono text-[11px] text-text-mute">MEASURED NOW</span>
+        <span className="mono text-[10px] text-text-mute">{timeAgo(row.observed_at)}</span>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <span
+          className="mono rounded-md px-2 py-0.5 text-[13px] font-bold"
+          style={{ background: row.color, color: aqiCategory(row.aqi).text }}
+        >
+          {row.aqi}
+        </span>
+        <span className="text-[12px] text-text-dim">
+          {row.band_label} · driven by {row.dominant_pollutant}
+        </span>
+      </div>
+      {(pm25 != null || pm10 != null) && (
+        <div className="mono mt-2 text-[11px] text-text-mute">
+          {pm25 != null && <>PM2.5 {pm25}</>}
+          {pm25 != null && pm10 != null && " · "}
+          {pm10 != null && <>PM10 {pm10}</>} µg/m³
+        </div>
+      )}
+      <div className="mono mt-1 text-[11px] text-text-mute">
+        {row.nearest_station} · {row.nearest_station_km} km
+        {row.n_stations > 1 && <> · {row.n_stations} stations blended</>}
+      </div>
+    </div>
+  );
+}
+
 function WardDetail({
   ward,
   horizon,
@@ -545,6 +612,7 @@ function WardDetail({
             <div className="mt-1"><DeltaTag now={aqiNow} base={values["24"]} /></div>
           </div>
         </div>
+        <LiveNowBlock zoneId={ward.zone_id} />
         <div className="mt-4 border-t border-border pt-3 mono text-[11px] text-text-mute">
           {ward.lat?.toFixed(3)}°N {ward.lon?.toFixed(3)}°E
           {ward.confidence != null && <> · confidence {Math.round(ward.confidence * 100)}%</>}
@@ -631,7 +699,6 @@ function CellDetail({
   }
   const aqiNow = cellAqi(cell, horizon);
   const values = Object.fromEntries(HORIZONS.map((h) => [h, cellAqi(cell, h)])) as Record<Horizon, number>;
-  const enforcement = ENFORCEMENT_TARGETS.filter((e) => e.cellId === cell.id || e.ward === cell.ward);
   const mix = (Object.keys(SOURCE_LABELS) as SourceKey[]).map((k) => ({
     key: k,
     label: SOURCE_LABELS[k],
@@ -694,24 +761,14 @@ function CellDetail({
       {/* Enforcement / actions */}
       <div className="bg-bg-secondary p-5">
         <div className="mono text-[11px] text-text-mute">Nearby registered sources</div>
-        {enforcement.length ? (
-          <ul className="mt-3 space-y-3">
-            {enforcement.map((e) => (
-              <li key={e.id}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-display text-sm">{e.name}</span>
-                  <span className="mono shrink-0 text-[11px] text-accent">P{e.priority}</span>
-                </div>
-                <div className="mono text-[11px] text-text-mute">{e.type}</div>
-                <div className="mt-1 text-[12px] text-text-dim">{e.action}</div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="mono mt-3 text-[11px] text-text-mute">
-            No registered emission sources within 1.5 km. Attribution driven by regional transport or diffuse activity.
-          </div>
-        )}
+        {/* The named targets that used to render here ("Narela Phase-III Sites",
+            "Bawana Cluster Kilns") were invented, along with their priorities and
+            their claimed measurements. The real ranked queue lives on /enforcement,
+            resolved to actual MCD wards, so this panel points there instead of
+            fabricating a local one for a sample-scene cell. */}
+        <div className="mono mt-3 text-[11px] text-text-mute">
+          Ranked enforcement targets for real wards are on the Enforcement page.
+        </div>
       </div>
     </div>
   );

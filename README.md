@@ -11,16 +11,16 @@ where to send inspectors · and what **you** personally should do — in your la
 
 <br/>
 
-[![Live Citizen App](https://img.shields.io/badge/🟢_VayuMitra-Live_Demo-075e54?style=for-the-badge)](https://vayumitra-advisory.onrender.com)
-[![Live Dashboard](https://img.shields.io/badge/🟢_AirGrid-Operator_Dashboard-0a746a?style=for-the-badge)](https://airgrid-dashboard.onrender.com)
-[![API Docs](https://img.shields.io/badge/⚙️_API-Swagger_Docs-475a5c?style=for-the-badge)](https://vayumitra-advisory.onrender.com/docs)
+[![Live Citizen App](https://img.shields.io/badge/🟢_VayuMitra-Live_Demo-075e54?style=for-the-badge)](https://vayumitra-advisory-u007.onrender.com)
+[![Live Dashboard](https://img.shields.io/badge/🟢_AirGrid-Operator_Dashboard-0a746a?style=for-the-badge)](https://airgrid-dashboard-47xp.onrender.com)
+[![API Docs](https://img.shields.io/badge/⚙️_API-Swagger_Docs-475a5c?style=for-the-badge)](https://vayumitra-advisory-u007.onrender.com/docs)
 
 ![Real data](https://img.shields.io/badge/data-REAL_pipeline_output-009966)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-dashboard-61DAFB?logo=react&logoColor=black)
 ![XGBoost](https://img.shields.io/badge/XGBoost-3_trained_models-EB5E28)
-![Groq](https://img.shields.io/badge/Llama_3.3-via_Groq-f55036)
+![Groq](https://img.shields.io/badge/gpt--oss--120b-via_Groq-f55036)
 ![Tests](https://img.shields.io/badge/tests-20%2F20_passing-009966)
 
 <sub>ET AI Hackathon 2026 · Problem Statement 5 · Team: Suhani · Parth · Krishna · Bind</sub>
@@ -29,7 +29,7 @@ where to send inspectors · and what **you** personally should do — in your la
 
 ---
 
-> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard.onrender.com)** and click **+24 h / +48 h / +72 h** — every chart, map and ranking re-computes from the real forecasts for **209 named Delhi wards**. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's Features 1–4 working end-to-end, deployed on real data.
+> ⏱️ **Judging in a hurry?** Open the **[dashboard](https://airgrid-dashboard-47xp.onrender.com)** and click **+24 h / +48 h / +72 h** — every chart, map and ranking re-computes from the real forecasts for **209 named Delhi wards**. Every page explains its own method in plain words ("How is this predicted?"). Then tap **Ask VayuMitra** (bottom-right, or the **[full app](https://vayumitra-advisory-u007.onrender.com)**): *"can my child play outside this evening?"*, **हिं** for Hindi, **sources** under any answer. That's Features 1–4 working end-to-end, deployed on real data.
 
 ---
 
@@ -101,11 +101,11 @@ flowchart LR
     I --> J & K
 ```
 
-**The honest split:** three small numeric models are **trained** (XGBoost — spatial estimation, forecasting, attribution features); language is **called** (Llama-3.3 via Groq, with deterministic fallbacks). Attribution is *directional evidence with confidence scores*, not exact plume physics — and the UI says so.
+**The honest split:** three small numeric models are **trained** (XGBoost — spatial estimation, forecasting, attribution features); language is **called** (gpt-oss-120b via Groq, with deterministic fallbacks). Attribution is *directional evidence with confidence scores*, not exact plume physics — and the UI says so.
 
 ## Validation — measured, not claimed
 
-All numbers from held-out validation ([`data/metrics.json`](data/metrics.json), served live at [`/metrics`](https://vayumitra-advisory.onrender.com/metrics)).
+All numbers from held-out validation ([`data/metrics.json`](data/metrics.json), served live at [`/metrics`](https://vayumitra-advisory-u007.onrender.com/metrics)).
 
 **Spatial estimation** (Leave-One-Station-Out — predict each station's AQI using only the *other* stations):
 
@@ -159,6 +159,25 @@ cd frontend && npm install && npm run dev
 ```
 
 **Tests:** `python tests/test_advisory.py` → 20/20 offline (no keys, no network needed; pass on real and mock data).
+
+## Deploy it
+
+Both services are declared in [`render.yaml`](render.yaml) — **Render → New → Blueprint → pick this repo → Apply** creates them and wires them together (the dashboard's `VITE_API_URL` is filled in from the backend service automatically).
+
+| Service | Runtime | Serves |
+|---|---|---|
+| `vayumitra-advisory` | Python | `/api/v1/*`, the advisory API, and VayuMitra at `/` |
+| `airgrid-dashboard` | Node | the operator dashboard (`rootDir: frontend`) |
+
+Only the secrets need typing, and every one is optional — with no keys the advisory still answers from deterministic CPCB templates and voice falls back to the browser:
+
+- `GROQ_API_KEY` — free at [console.groq.com](https://console.groq.com)
+- `DEEPGRAM_API_KEY` (English voice) · `ELEVENLABS_API_KEY` (English + Hindi voice)
+
+Two things worth knowing:
+
+- **`*.onrender.com` names are globally unique.** To keep these exact URLs on a different account, delete the old services first — otherwise the names are taken and every link above changes.
+- **Free instances sleep after ~15 min idle** (~30–60 s cold start). A keep-alive thread pings every 10 min to avoid that, but warming is not free: two always-on services spend roughly 1,440 instance-hours a month against a free allowance near 750 — which is what suspended our first deployment about four weeks in. Worth it across a judging window, not across a month. Set `KEEPALIVE=0` and warm the URLs by hand before a demo if the deployment needs to last.
 
 ## API at a glance
 

@@ -29,7 +29,9 @@ from pydantic import BaseModel  # noqa: E402
 
 from advisory import advisory_engine, chat as chat_mod, llm, sources, tts  # noqa: E402
 from advisory.config import city_config, languages  # noqa: E402
-from advisory.data import data_source_kind, list_zones  # noqa: E402
+from advisory import live as live_mod  # noqa: E402
+from advisory.data import (data_source_kind, forecast_provenance,  # noqa: E402
+                           list_zones)
 from advisory.health_bands import band_for_aqi  # noqa: E402
 from advisory.personas import list_personas  # noqa: E402
 from compare.city_compare import compare  # noqa: E402
@@ -121,6 +123,9 @@ def meta() -> dict:
         "features": FEATURES,
         "llm_available": llm.available(),
         "voice_available": tts.available(),
+        # Data provenance, so any client can label freshness without guessing.
+        "forecast_run": forecast_provenance(),
+        "live_available": live_mod.openaq.available(),
     }
 
 
@@ -145,10 +150,50 @@ def _csv_records(filename: str, limit: int = 250) -> dict:
         return {"available": False, "items": []}
 
 
+_CELL_WARD_MAP: dict | None = None
+
+
+def _cell_ward_map() -> dict:
+    """cell_id -> {ward_no, ward_name} from the ward-joined pipeline output.
+
+    Cached in a module global rather than with lru_cache, because functools is not
+    imported until further down this file.
+    """
+    global _CELL_WARD_MAP
+    if _CELL_WARD_MAP is not None:
+        return _CELL_WARD_MAP
+    path = _REPO_ROOT / "data" / "future_aqi_forecast_ward.csv"
+    if not path.exists():
+        _CELL_WARD_MAP = {}
+        return _CELL_WARD_MAP
+    try:
+        import pandas as pd
+        df = (pd.read_csv(path, usecols=["cell_id", "Ward_No", "Ward_Name"])
+                .dropna(subset=["Ward_Name"])
+                .drop_duplicates("cell_id"))
+        _CELL_WARD_MAP = {int(r.cell_id): {"ward_no": str(r.Ward_No).replace(".0", ""),
+                                           "ward_name": str(r.Ward_Name)}
+                          for r in df.itertuples()}
+    except Exception:
+        _CELL_WARD_MAP = {}
+    return _CELL_WARD_MAP
+
+
 @router.get("/enforcement/top")
 def enforcement_top() -> dict:
-    """Top-ranked enforcement targets (Feature 3 output, ranked, ~20 rows)."""
+    """Top-ranked enforcement targets (Feature 3 output, ranked, ~20 rows).
+
+    Each target is resolved to its real MCD ward. Without a name a target reads as
+    "cell 544", which is unusable for an inspector and invites the UI to invent a
+    friendlier label — which is exactly how the dashboard ended up displaying
+    made-up sites like "Bawana Cluster Kilns". All 20 rows map successfully.
+    """
     out = _csv_records("top_enforcement_targets.csv", limit=50)
+    wmap = _cell_ward_map()
+    for item in out.get("items", []):
+        info = wmap.get(int(item.get("cell_id", -1)), {})
+        item["ward_name"] = info.get("ward_name")
+        item["ward_no"] = info.get("ward_no")
     return out
 
 
@@ -292,8 +337,26 @@ def wards(city: str | None = Query(default=None)) -> dict:
         "city": city or city_config().get("active_city"),
         "data_kind": data_source_kind(city),
         "count": len(zones),
+        # Provenance travels with the data so no screen can imply the forecast is
+        # more current than it is.
+        "forecast_run": forecast_provenance(),
         "wards": [_zone_summary(z) for z in zones],
     }
+
+
+@router.get("/live")
+def live_now(city: str | None = Query(default=None),
+             refresh: bool = Query(default=False)) -> dict:
+    """Live ward AQI from real CPCB/DPCC/IMD station readings (OpenAQ).
+
+    This is the "right now" layer and is deliberately distinct from /wards, which
+    serves our models' 24/48/72 h forecast. Always returns the {available, ...}
+    contract, so no key or no network degrades to a labelled fallback rather than an
+    error. Cached ~10 min inside advisory.openaq.
+    """
+    if refresh:
+        return live_mod.live_wards(list_zones(city), force=True)
+    return live_mod.cached_live_wards(list_zones(city))
 
 
 @router.get("/advisory")
@@ -348,9 +411,136 @@ def compare_endpoint(cities: str | None = Query(default=None)) -> dict:
 # URLs of both services every 10 minutes, which counts as inbound traffic and
 # keeps them warm — no cold starts during judging. Overridable/disable-able via
 # KEEPALIVE_URLS / KEEPALIVE=0. A GitHub Actions cron does the same as backup.
+#
+# COST, read before enabling for a long stretch: keeping a service awake spends
+# instance-hours around the clock. Two always-on free services burn ~1,440 h in
+# a month against a free allowance of ~750 — which is exactly what suspended the
+# original deployment ("Free Tier Usage Exceeded", 17 Aug 2026) about four weeks
+# after launch. It is the right trade for a judging window of a few days; for
+# anything longer set KEEPALIVE=0 and warm the URLs by hand before a demo.
 # ---------------------------------------------------------------------------
-_KEEPALIVE_DEFAULT = ("https://vayumitra-advisory.onrender.com/health,"
-                      "https://airgrid-dashboard.onrender.com/")
+_KEEPALIVE_DEFAULT = ("https://vayumitra-advisory-u007.onrender.com/health,"
+                      "https://airgrid-dashboard-47xp.onrender.com/")
+
+
+def _keepalive_urls() -> list[str]:
+    """URLs to warm. Prefers KEEPALIVE_URLS, then this service's own public URL.
+
+    Render injects RENDER_EXTERNAL_URL with the real hostname, so a redeploy under
+    a different service name (an *.onrender.com name is globally unique — a fresh
+    account cannot reclaim one still held by the old account) self-pings correctly
+    instead of warming someone else's service. Only the hardcoded pair, which is
+    the last resort, can go stale.
+    """
+    import os
+
+    explicit = os.getenv("KEEPALIVE_URLS", "").strip()
+    if explicit:
+        return [u.strip() for u in explicit.split(",") if u.strip()]
+
+    own = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if own:
+        return [f"{own}/health"]
+
+    return [u.strip() for u in _KEEPALIVE_DEFAULT.split(",") if u.strip()]
+
+
+def _start_forecast_refresh() -> None:
+    """Periodically regenerate the 24/48/72 h forecast from current station data.
+
+    Render's managed Cron Jobs are a PAID feature — creating one on the free plan is
+    rejected outright ("invalid plan: free") — so the schedule lives in the service
+    itself. A cron job also could not have helped here: it runs in its own container
+    with its own filesystem, so it could never update the CSVs this web service
+    reads.
+
+    Run as a SUBPROCESS, deliberately, not inline. The refresh peaks around 266 MB
+    against a 512 MB free instance, and the web app is already holding pandas frames
+    of its own. In-process that is close enough to the ceiling that a bad run could
+    OOM the whole service mid-demo; as a subprocess the worst case is one failed
+    refresh while the API keeps serving. The script is already safe to interrupt — it
+    writes to a .NEW file and only promotes after its sanity gates pass.
+
+    Controls: FORECAST_REFRESH=0 disables; FORECAST_REFRESH_HOURS sets the interval
+    (default 6); the first run waits FORECAST_REFRESH_DELAY_MIN (default 15) so a
+    cold boot serves traffic before doing heavy work.
+    """
+    import os
+    import subprocess
+    import threading
+    import time
+
+    if os.getenv("FORECAST_REFRESH", "1") == "0":
+        return
+    if not live_mod.openaq.available():
+        return                      # no key, nothing to refresh from
+
+    script = _REPO_ROOT / "scripts" / "refresh_forecast.py"
+    if not script.exists():
+        return
+
+    interval = max(1.0, float(os.getenv("FORECAST_REFRESH_HOURS", "6"))) * 3600.0
+    first_delay = max(0.0, float(os.getenv("FORECAST_REFRESH_DELAY_MIN", "15"))) * 60.0
+
+    def _loop() -> None:
+        time.sleep(first_delay)
+        while True:
+            try:
+                proc = subprocess.run(
+                    [sys.executable, str(script), "--promote"],
+                    cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=1800,
+                )
+                if proc.returncode == 0:
+                    # The zone and provenance loaders are lru_cached, so without
+                    # this the service would keep serving July's numbers under a
+                    # freshly-updated timestamp until the next deploy.
+                    from advisory import data as data_mod
+                    data_mod.load_zones.cache_clear()
+                    data_mod.forecast_provenance.cache_clear()
+                    print("[forecast-refresh] promoted a new run", flush=True)
+                else:
+                    print(f"[forecast-refresh] skipped (exit {proc.returncode}); "
+                          f"existing forecast left untouched", flush=True)
+            except Exception as exc:
+                print(f"[forecast-refresh] error: {exc}", flush=True)
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, daemon=True, name="forecast-refresh").start()
+
+
+def _start_live_refresh() -> None:
+    """Keep the live-station cache warm in the background.
+
+    Fetching ~63 stations takes roughly 14 s because each needs its own /latest call.
+    That is fine as a background job and far too slow on the request path — a judge
+    hitting a cold dashboard would sit through it, and on a free instance it can hit
+    the proxy timeout outright. So we warm once at startup and refresh on a timer,
+    which means every user request is served from cache in ~30 ms.
+
+    This is also what makes the live layer genuinely self-refreshing: the data stays
+    current without anyone running a script.
+
+    Disable with LIVE_REFRESH=0. Never raises — a failed cycle just leaves the last
+    good cache in place, and /live reports its age honestly.
+    """
+    import os
+    import threading
+    import time
+
+    if os.getenv("LIVE_REFRESH", "1") == "0" or not live_mod.openaq.available():
+        return
+
+    interval = max(300, int(os.getenv("LIVE_REFRESH_SECONDS", "600")))
+
+    def _loop() -> None:
+        while True:
+            try:
+                live_mod.live_wards(list_zones(), force=True)
+            except Exception:
+                pass          # keep the last good cache; never kill the thread
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, daemon=True, name="live-refresh").start()
 
 
 def _start_keepalive() -> None:
@@ -360,8 +550,7 @@ def _start_keepalive() -> None:
 
     if os.getenv("KEEPALIVE", "1") == "0" or not os.getenv("RENDER"):
         return
-    urls = [u.strip() for u in
-            os.getenv("KEEPALIVE_URLS", _KEEPALIVE_DEFAULT).split(",") if u.strip()]
+    urls = _keepalive_urls()
 
     def _loop() -> None:
         import requests
@@ -384,6 +573,8 @@ def create_app() -> FastAPI:
         version="1.0.0",
     )
     _start_keepalive()
+    _start_live_refresh()
+    _start_forecast_refresh()
     # Demo-friendly CORS. Tighten to the deployed frontend origin in production.
     app.add_middleware(
         CORSMiddleware,

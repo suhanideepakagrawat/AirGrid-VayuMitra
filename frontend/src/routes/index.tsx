@@ -21,11 +21,18 @@ import {
   HORIZONS,
   SOURCE_COLORS,
   SOURCE_EVIDENCE,
+  SOURCE_BASIS,
   SOURCE_LABELS,
   type Horizon,
   type SourceKey,
 } from "@/lib/air-data";
-import { CITIZEN_APP_URL, wardAqiAt, wardsQuery, type LiveWard } from "@/lib/api";
+import {
+  CITIZEN_APP_URL,
+  liveQuery,
+  wardAqiAt,
+  wardsQuery,
+  type LiveWard,
+} from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -74,7 +81,7 @@ function Landing() {
               <span className="text-accent">Ward by ward. Source by source.</span>
             </h1>
             <p className="mt-6 max-w-xl text-base text-text-dim md:text-lg">
-              AirGrid turns the city's ~40 monitors into an intelligence layer:
+              AirGrid turns the city's 60-plus government monitors into an intelligence layer:
               a three-day forecast for every ward, the dominant polluter named with
               evidence and confidence, deployment orders for inspection teams — and
               health advice any family can act on, in English and हिन्दी.
@@ -431,7 +438,39 @@ function Readout({ k, v }: { k: string; v: string }) {
   );
 }
 
+/** How many wards are currently showing each signature, straight from /live. Turns a
+ *  static method description into a live claim a reader can check against the map. */
+function useLiveSourceCounts() {
+  const live = useQuery(liveQuery);
+  return useMemo(() => {
+    if (!live.data?.available) return null;
+    const counts: Record<string, number> = { traffic: 0, industry: 0, construction: 0 };
+    for (const w of live.data.wards) {
+      const d = w.fingerprint?.dominant;
+      if (d && d in counts) counts[d] += 1;
+    }
+    return { counts, burning: live.data.regional_burning, total: live.data.wards.length };
+  }, [live.data]);
+}
+
 function SourceCard({ k }: { k: SourceKey }) {
+  const live = useLiveSourceCounts();
+
+  // What the live data says about this source right now.
+  let reading: string | null = null;
+  if (live) {
+    if (k === "burning") {
+      const rb = live.burning;
+      reading = rb?.available ? (rb.evidence ?? null) : null;
+    } else {
+      const n = live.counts[k] ?? 0;
+      reading =
+        n > 0
+          ? `${n} of ${live.total} wards are showing this signature right now`
+          : "no ward is showing this signature right now";
+    }
+  }
+
   return (
     <div className="bg-bg-primary p-6">
       <div className="mb-4 flex items-center gap-3">
@@ -444,12 +483,16 @@ function SourceCard({ k }: { k: SourceKey }) {
         <span className="font-display text-lg text-foreground">{SOURCE_LABELS[k]}</span>
       </div>
       <p className="text-sm text-text-dim">{SOURCE_EVIDENCE[k]}</p>
-      <div className="mono mt-4 flex items-center gap-4 text-[11px] text-text-mute">
-        <span>Evidence · wind corridor</span>
-        <span>·</span>
-        <span>Land use</span>
-        <span>·</span>
-        <span>{k === "burning" ? "Satellite fire" : "Registered permits"}</span>
+      {reading && (
+        <p className="mono mt-3 border-l-2 border-accent pl-3 text-[12px] text-foreground">
+          {reading}
+        </p>
+      )}
+      <div className="mono mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-mute">
+        <span>Evidence</span>
+        {SOURCE_BASIS[k].map((b) => (
+          <span key={b}>· {b}</span>
+        ))}
       </div>
     </div>
   );

@@ -19,11 +19,38 @@ export const SOURCE_COLORS: Record<SourceKey, string> = {
   burning: "var(--source-burning)",
 };
 
+/**
+ * What each source signature is actually measured from.
+ *
+ * These replace four earlier strings that described a system we had not built —
+ * they cited NO2 "signatures", "3 registered brick kilns", DPCC permits and MODIS
+ * fire detections at a time when none of those existed in the backend. Every claim
+ * below now maps to a real measurement: `advisory/fingerprints.py` for the pollutant
+ * signals, `advisory/fire.py` for satellite fire transport.
+ *
+ * Kept as method descriptions rather than fabricated specifics. The live numbers are
+ * fetched per render from /live, so the page states the method and the data supplies
+ * the evidence.
+ */
 export const SOURCE_EVIDENCE: Record<SourceKey, string> = {
-  traffic: "Peak-hour NO₂ signature matches arterial road network within 400 m upwind.",
-  industry: "Wind from NNW aligns with 3 registered brick kilns 6.2 km upwind; SO₂ elevated.",
-  construction: "PM10/PM2.5 ratio ≥ 3.1 with active DPCC construction permits within 800 m.",
-  burning: "MODIS/VIIRS fire detections in Punjab-Haryana with wind corridor terminating in this cell.",
+  traffic:
+    "NO₂ measured at CPCB monitoring stations and compared with the citywide median at the same moment. Vehicles dominate Delhi's NO₂, and it is short-lived — so a raised reading points at a source close by rather than one drifting in.",
+  industry:
+    "SO₂ measured and compared with the citywide median. SO₂ comes from burning sulphur-bearing fuel — coal, heavy oil, kilns. Since BS-VI fuel, vehicles emit very little of it, which is what makes it a useful industrial marker.",
+  construction:
+    "The PM10 to PM2.5 ratio. Digging, crushing and road dust throw coarse particles; combustion makes fine ones. A coarse-heavy mix is the standard indicator for mechanically-generated dust.",
+  burning:
+    "NASA VIIRS satellite fire detections across Punjab and Haryana, counted only when the measured station wind is actually carrying them towards Delhi. Fires burning with the wind blowing elsewhere are not attributed here.",
+};
+
+/** What kinds of evidence each source genuinely draws on — the badge row under a
+ *  source card. "Registered permits" was removed: no public real-time DPCC permit
+ *  feed exists, so nothing backed it. */
+export const SOURCE_BASIS: Record<SourceKey, string[]> = {
+  traffic: ["Live NO₂", "Wind corridor", "Road network"],
+  industry: ["Live SO₂", "Wind corridor", "Industrial land use"],
+  construction: ["Live PM10/PM2.5", "Wind corridor", "Construction land use"],
+  burning: ["Satellite fire", "Measured wind", "Transport distance"],
 };
 
 export type Cell = {

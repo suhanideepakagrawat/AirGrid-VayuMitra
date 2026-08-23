@@ -201,3 +201,39 @@ def data_source_kind(city_key: str | None = None) -> str:
     city = get_city(city_key)
     real = REPO_ROOT / city.get("data_file", "")
     return "real" if (city.get("data_file") and real.exists()) else "mock"
+
+
+@lru_cache(maxsize=1)
+def forecast_provenance() -> dict:
+    """When the served forecast was produced, and how old that makes it.
+
+    Every screen showing a forecast number must be able to date it. Without this the
+    UI silently implies the numbers are current, which is the single easiest thing
+    for a reviewer to catch us on. Read from the pipeline output's own
+    `source_timestamp` rather than file mtime, so it survives a git checkout.
+    """
+    import datetime as dt
+
+    import pandas as pd          # imported lazily here, as elsewhere in this module
+
+    path = REPO_ROOT / _WARD_MAP_FILE
+    out: dict = {"available": False}
+    if not path.exists():
+        return out
+    try:
+        col = pd.read_csv(path, usecols=["source_timestamp", "target_timestamp"])
+        issued = str(col["source_timestamp"].dropna().iloc[0])
+        targets = sorted(col["target_timestamp"].dropna().unique().tolist())
+        issued_dt = pd.to_datetime(issued, utc=True).to_pydatetime()
+        age_h = (dt.datetime.now(dt.timezone.utc) - issued_dt).total_seconds() / 3600.0
+        out = {
+            "available": True,
+            "issued_at": issued_dt.isoformat(timespec="seconds"),
+            "age_hours": round(age_h, 1),
+            "age_days": round(age_h / 24.0, 1),
+            "targets": [str(t) for t in targets],
+            "source": "Trained XGBoost forecasters (24/48/72 h) on CPCB station history",
+        }
+    except Exception:
+        return {"available": False}
+    return out

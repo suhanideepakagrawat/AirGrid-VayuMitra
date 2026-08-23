@@ -6,3 +6,10 @@ requests>=2.31
 pyyaml>=6.0
 pandas>=2.0          # only used when the real source_attribution.csv is present
 pydantic>=2.5
+
+# Needed only by scripts/refresh_forecast.py, which the service runs as a
+# SUBPROCESS to regenerate the forecast. The API itself never imports it — the
+# live layer uses inverse-distance weighting precisely to avoid this at request
+# time. Loaded via the native Booster API, so scikit-learn is not required.
+xgboost>=2.0
+

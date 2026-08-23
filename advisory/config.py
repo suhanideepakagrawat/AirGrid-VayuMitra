@@ -65,8 +65,11 @@ def languages() -> list[dict]:
 
 # ---- LLM settings (Groq is OpenAI-compatible; primary provider) -------------
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_COMPOSE_MODEL = "llama-3.3-70b-versatile"   # rich persona composition
-DEFAULT_FAST_MODEL = "llama-3.1-8b-instant"          # translation / intent
+# NOTE (Aug 2026): Groq decommissioned the llama-3.x line. These are the current
+# hosted models on the free tier — gpt-oss-120b composes, gpt-oss-20b translates.
+# Avoid qwen3.6-27b here: it emits <think> blocks that leak into citizen copy.
+DEFAULT_COMPOSE_MODEL = "openai/gpt-oss-120b"   # rich persona composition
+DEFAULT_FAST_MODEL = "openai/gpt-oss-20b"       # translation / intent
 
 
 def groq_api_key() -> str:
@@ -79,3 +82,8 @@ def compose_model() -> str:
 
 def fast_model() -> str:
     return os.getenv("GROQ_FAST_MODEL", DEFAULT_FAST_MODEL)
+
+
+def reasoning_effort() -> str:
+    """Reasoning budget for gpt-oss models. Keep "low" — see advisory/llm.py."""
+    return os.getenv("GROQ_REASONING_EFFORT", "low")

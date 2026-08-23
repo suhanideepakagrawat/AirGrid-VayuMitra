@@ -124,7 +124,7 @@ export function HorizonTriplet({
             key={h}
             onClick={() => onSelect?.(h)}
             disabled={!onSelect}
-            aria-label={`+${h} hours: AQI ${v}, ${cat.label}`}
+            aria-label={h === "now" ? `Measured now: AQI ${v}, ${cat.label}` : `+${h} hours: AQI ${v}, ${cat.label}`}
             aria-pressed={isActive}
             className={`group flex flex-1 flex-col items-center justify-end gap-1 ${onSelect ? "cursor-pointer" : "cursor-default"}`}
           >
@@ -142,7 +142,7 @@ export function HorizonTriplet({
               }}
             />
             <span className={`mono text-[10.5px] ${isActive ? "font-bold text-accent" : "text-text-mute"}`}>
-              +{h}h
+              {h === "now" ? "Now" : `+${h}h`}
             </span>
           </button>
         );

@@ -645,3 +645,41 @@ push: 63 stations, 209 wards.
 **Files.** `README.md`, `render.yaml`, `frontend/src/components/AppShell.tsx`,
 `frontend/src/components/DelhiWardMap.tsx`, `frontend/src/routes/dashboard.tsx`,
 `frontend/src/routes/enforcement.tsx`, `docs/screenshots/*`.
+
+---
+
+## B15 - Panel scrolling, and the "+nowh" label (24 Aug 2026)
+
+**1. `+nowh`.** The forecast triplet built every tick label from the template
+`+{h}h`. When "Now" joined the horizon list as a `HorizonSel`, it rendered as
+`+nowh`. Now is a measurement, not an offset, so it gets its own label - and its own
+aria-label ("Measured now: AQI …" rather than "+now hours: …").
+
+**2. The blank band below the dashboard.** Reported from a real laptop: scrolling
+slid the map and the rail up and out, leaving an empty half-screen while the sidebar
+carried on.
+
+The frame was locked to the viewport only when the window was **820 CSS px tall**.
+That gate almost never fires on real hardware - a 1080p laptop at Windows 125%
+scaling reports ~756 CSS px, at 150% ~630 - so the lock stayed off, the whole
+document scrolled, and the short panes slid away above the tall sidebar.
+
+The gate is gone. From `md` up the frame is locked at **any** height and each column
+owns its scrollbar: sidebar, map, detail rail. Nothing is unreachable, because
+nothing depends on the document scrolling; and nothing scrolls into emptiness,
+because the document does not scroll at all. Below `md` the page still flows
+normally - pinning a phone to 100vh is what made the ward detail unreachable in the
+first place.
+
+Dropped with the gate: the `80vh` pane caps and the `62vh` map cap. Those existed to
+stop the map ballooning when the lock was off; with the lock always on they only
+shrank the panes and left a gap at the bottom of tall screens.
+
+**Verification.** `docScroll = 0` on `/dashboard`, `/enforcement` and `/health` at
+1920x1023, 1536x756 (125%), 1280x630 (150%) and 1440x820 - and the sidebar reports
+as an internally scrolling pane at every one. `/attribution` and `/` still scroll as
+documents, which is right for long-form pages. Phone unchanged (2061px of natural
+scroll). 20/20 tests, five routes x three viewports, zero JS errors, zero horizontal
+overflow, no `+nowh` anywhere.
+
+**Files.** `frontend/src/routes/dashboard.tsx`, `frontend/src/components/charts.tsx`.

@@ -139,11 +139,17 @@ function Dashboard() {
 
   return (
     <AppShell>
-      {/* Locked to the viewport only from md up, where the two-pane layout needs a
-          fixed frame. Below that the page scrolls normally: pinning a phone to
-          100vh with overflow-hidden made the ward detail and predictions
-          unreachable - they existed, just below a wall with no scrollbar. */}
-      <div className="flex flex-col md:[@media(min-height:820px)]:h-[calc(100vh-57px)]">
+      {/* Locked to the viewport from md up; below that the page scrolls normally,
+          because pinning a phone to 100vh made the ward detail unreachable.
+
+          This used to also require a viewport 820px tall, on the theory that a
+          short window needed the document to scroll. That was wrong twice over: a
+          1080p laptop at Windows 125% scaling reports ~756 CSS px, so the lock
+          almost never engaged on real hardware - and when the document scrolled,
+          the map and the rail slid away above a tall sidebar, leaving the blank
+          band below them. Each pane owns its own scrollbar instead, so nothing
+          is unreachable and nothing scrolls into emptiness. */}
+      <div className="flex flex-col md:h-[calc(100vh-57px)] md:overflow-hidden">
         {/* Provenance first: the live reading and the forecast run are different
             kinds of number, and the page says so before showing either. */}
         <DataFreshness className="mx-4 mt-3" />
@@ -162,11 +168,11 @@ function Dashboard() {
           </div>
         )}
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_1fr]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_1fr] md:overflow-hidden">
           {/* Sidebar */}
           {/* Visible on phones as well: hiding the ward list below md removed the
               only way to find your own ward on the device most judges will use. */}
-          <aside className="order-2 overflow-y-auto border-b border-border bg-bg-secondary md:order-none md:border-b-0 md:border-r">
+          <aside className="order-2 overflow-y-auto border-b border-border bg-bg-secondary md:order-none md:min-h-0 md:border-b-0 md:border-r">
             <WardFinder
               horizon={horizon}
               liveWards={liveWards}
@@ -234,14 +240,14 @@ function Dashboard() {
           </aside>
 
           {/* Map + detail */}
-          <section className="grid min-h-0 grid-rows-[auto_auto] md:grid-rows-[1fr_auto] md:[@media(min-height:820px)]:overflow-hidden xl:grid-cols-[minmax(0,1fr)_460px] xl:grid-rows-1 xl:overflow-hidden 2xl:grid-cols-[minmax(0,1fr)_680px]">
+          <section className="grid min-h-0 grid-rows-[auto_auto] md:grid-rows-[1fr_auto] md:overflow-hidden xl:grid-cols-[minmax(0,1fr)_460px] xl:grid-rows-1 2xl:grid-cols-[minmax(0,1fr)_680px]">
             {/* Delhi is a PORTRAIT shape in a landscape slot, so the SVG always fits by
                 height and leaves empty bands either side. Stacking the detail row under
                 the map therefore wastes the worst dimension: the map loses height it
                 needs and gains width it cannot use. From 2xl up the detail moves into a
                 right rail instead, which both fills the empty band and roughly doubles
-                the map. Below xl the stacked layout is unchanged. */}
-            <div className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:h-auto md:max-h-[62vh] md:min-h-[320px] xl:h-full xl:max-h-[80vh] xl:min-w-0 xl:border-b-0 xl:border-r">
+                the map. Below xl the detail stays stacked under it. */}
+            <div className="relative h-[52vh] min-h-[300px] overflow-hidden border-b border-border bg-bg-secondary md:h-full md:min-h-0 xl:min-w-0 xl:border-b-0 xl:border-r">
               {mapMode === "wards" && liveWards ? (
                 <DelhiWardMap
                   liveWards={liveWards}
@@ -309,7 +315,7 @@ function Dashboard() {
             {/* Scrolls within itself on desktop; on a phone it simply flows, so
                 nothing is hidden below the fold. 46vh on a short laptop window was
                 barely two rows. */}
-            <div className="[@media(min-width:768px)_and_(min-height:820px)_and_(max-width:1279px)]:max-h-[52vh] [@media(min-width:768px)_and_(min-height:820px)_and_(max-width:1279px)]:overflow-y-auto xl:h-full xl:max-h-[80vh] xl:overflow-y-auto xl:bg-bg-secondary xl:[&_.detail-grid>*]:p-3.5 xl:[&_.detail-grid_.mix-legend]:mt-2">
+            <div className="md:max-h-[52vh] md:overflow-y-auto xl:h-full xl:max-h-none xl:overflow-y-auto xl:bg-bg-secondary xl:[&_.detail-grid>*]:p-3.5 xl:[&_.detail-grid_.mix-legend]:mt-2">
               {active?.kind === "ward" ? (
                 <WardDetail
                   ward={active.ward}

@@ -183,6 +183,11 @@ export type LiveNow = {
   data_age_hours?: number | null;
   stations?: number;
   stations_fetched?: number;
+  /** Which concentration each sub-index was computed from. CPCB defines its AQI on
+   *  a 24 h mean (8 h for O3); a spot reading through the same breakpoints is a
+   *  different index with the same name. */
+  averaging?: string;
+  values_averaged?: number;
   quality_filtered?: string[];
   regional_burning?: RegionalBurning;
   wards: LiveNowWard[];

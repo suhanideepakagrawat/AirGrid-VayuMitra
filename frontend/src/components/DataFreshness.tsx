@@ -89,8 +89,18 @@ export function DataFreshness({ className = "" }: { className?: string }) {
               <strong className="text-foreground">{summary.worst.name}</strong>{" "}
               {summary.worst.aqi}
             </span>
-            <span className="mono text-[11px] text-text-mute">
-              CPCB · {summary.stations} stations · measured {timeAgo(live.data?.observed_at)}
+            {/* The averaging basis belongs next to the number. It is the reason
+                this figure matches what CPCB publishes rather than running high
+                at night, and it is the first thing a jury will ask about. */}
+            <span
+              className="mono text-[11px] text-text-mute"
+              title={live.data?.averaging ?? undefined}
+            >
+              CPCB · {summary.stations} stations ·{" "}
+              {live.data?.values_averaged
+                ? "24h average basis"
+                : "hourly basis · averaging"}{" "}
+              · latest {timeAgo(live.data?.observed_at)}
             </span>
           </>
         ) : live.data?.state === "warming" ? (

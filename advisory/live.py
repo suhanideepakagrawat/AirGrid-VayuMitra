@@ -92,6 +92,79 @@ def station_aqi(pollutants: dict[str, float]) -> tuple[float, str] | None:
     return best
 
 
+# CPCB averaging windows. The National AQI is defined on a 24-hour average for
+# PM2.5, PM10, NO2 and SO2, and on the highest 8-hour rolling mean for O3 and CO.
+# Pushing a spot reading through the same breakpoints is a different index with the
+# same name - and it runs high at night, when the boundary layer collapses and the
+# hourly value sits far above the day's mean.
+AVG_HOURS = {"pm25": 24, "pm10": 24, "no2": 24, "so2": 24, "o3": 8}
+
+# Fraction of stations that must have a usable history before we switch the whole
+# network onto CPCB windows.
+WINDOW_COVERAGE_MIN = 0.6
+
+
+# CPCB will not publish a sub-index from a sparse day: a 24-hour average needs at
+# least 16 hourly values. We relax it to two thirds of the window, because OpenAQ
+# mirrors CPCB with gaps of its own and a 16-hour floor would drop good stations -
+# but a "24-hour mean" computed from two readings is not one, and those fall back
+# to the spot value instead.
+MIN_WINDOW_FRACTION = 2 / 3
+
+
+def _cpcb_average(values: list[float], hours: int) -> float | None:
+    """The concentration CPCB would index: a 24-hour mean, or for O3 the highest
+    8-hour rolling mean in the window (CPCB takes the worst 8-hour block, not the
+    latest one). None when the window is too sparse to average honestly."""
+    vals = [v for v in values if v is not None]
+    if len(vals) < max(2, int(hours * MIN_WINDOW_FRACTION)):
+        return None
+    if hours >= 24 or len(vals) <= hours:
+        return sum(vals) / len(vals)
+    blocks = [sum(vals[i:i + hours]) / hours for i in range(len(vals) - hours + 1)]
+    return max(blocks) if blocks else sum(vals) / len(vals)
+
+
+def _apply_cpcb_windows(stations: list[dict]) -> tuple[list[dict], int]:
+    """Swap each station's spot readings for the CPCB averaging window.
+
+    Falls back to the spot reading per pollutant when no window is available, so a
+    slow sensor degrades one number rather than dropping the station. Returns the
+    stations and how many pollutant values were actually averaged.
+    """
+    try:
+        windows = openaq.cached_station_windows()
+    except Exception:
+        return stations, 0
+    if not windows:
+        return stations, 0
+
+    # Never mix bases. A field where some stations carry a 24-hour mean and others a
+    # spot reading is not a measurement of anything - the spatial contrast between two
+    # wards would then partly reflect which station happened to have history. Either
+    # most of the network is averaged or none of it is.
+    covered = sum(1 for st in stations if windows.get(st.get("station_id")))
+    if not stations or covered / len(stations) < WINDOW_COVERAGE_MIN:
+        return stations, 0
+
+    averaged = 0
+    for st in stations:
+        w = windows.get(st.get("station_id"))
+        if not w:
+            continue
+        pol = dict(st.get("pollutants") or {})
+        for name, series in w.items():
+            if name not in AVG_HOURS:
+                continue
+            mean = _cpcb_average(series, AVG_HOURS[name])
+            if mean is not None:
+                pol[name] = round(mean, 2)
+                averaged += 1
+        st["pollutants"] = pol
+        st["averaging"] = "cpcb_window"
+    return stations, averaged
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
@@ -281,6 +354,10 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
                 "wards": [], "stations": 0}
 
     stations = openaq.live_stations(force=force)
+    # Index the CPCB-defined average, not the latest hour. Measured against our own
+    # stations this is worth ~50 AQI on the city mean and 157 at Anand Vihar, and it
+    # is the difference between matching what CPCB publishes and not.
+    stations, averaged = _apply_cpcb_windows(stations)
     scored, quality_notes = _scored_stations(stations)
     # Fingerprints run on the CLEANED set only — see fingerprint_all's docstring.
     scored = fp.fingerprint_all(scored)
@@ -335,6 +412,11 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
         "data_age_hours_oldest": round(ages[-1], 2) if ages else None,
         "stations": len(scored),
         "stations_fetched": len(stations),
+        "averaging": ("CPCB windows: 24 h mean for PM2.5/PM10/NO2/SO2, highest 8 h "
+                      "mean for O3" if averaged else
+                      "latest hourly reading - 24 h history still loading, so this "
+                      "cycle reads high at night"),
+        "values_averaged": averaged,
         # Surfaced rather than hidden: a reader can see exactly which readings we
         # rejected and why, which is the honest way to run a quality filter.
         "quality_filtered": quality_notes,

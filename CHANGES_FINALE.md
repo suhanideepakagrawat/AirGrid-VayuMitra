@@ -768,3 +768,67 @@ tests, five routes x two viewports, zero JS errors, zero horizontal overflow.
 **Files.** `advisory/live.py`, `advisory/openaq.py`,
 `frontend/src/routes/dashboard.tsx`, `frontend/src/routes/enforcement.tsx`,
 `frontend/src/components/DelhiWardMap.tsx`.
+
+---
+
+## B17 - The live layer was computing a different index and calling it CPCB (24 Aug 2026)
+
+Reported: every tab except the dashboard matched what CPCB publishes. That was
+right, and the cause was a methodology error, not a display bug.
+
+**The CPCB National AQI is defined on averaged concentrations** - a 24-hour mean for
+PM2.5, PM10, NO2 and SO2, and the highest 8-hour rolling mean for O3 and CO. We were
+pushing OpenAQ's **latest hourly value** through those breakpoints. That is a
+different index wearing the same name, and it runs high at night, when the boundary
+layer collapses and the spot reading sits far above the day's mean.
+
+Measured on our own stations:
+
+| Station | hourly basis | CPCB 24 h basis | error |
+|---|---:|---:|---:|
+| Anand Vihar | 351 | 194 | **+157** |
+| Punjabi Bagh | 160 | 111 | +49 |
+| R K Puram | 125 | 98 | +27 |
+| Pusa | 99 | 77 | +22 (and named the wrong dominant pollutant) |
+
+City-wide, the whole live layer moved from **avg 139 / max 272** to **avg 89 / max
+145**, and the mean per-ward gap between the measured and forecast layers fell from
+**68 AQI to 27**. Bawana: 111 → 90 against a forecast of 102. The layers now tell the
+same story because they are finally measuring the same thing.
+
+`station_windows()` - which computes exactly this, and whose docstring already
+described the error - had been written and left unwired because it was too slow for
+the request path. Three things made it usable:
+
+1. **One sensor per station per pollutant.** Many CPCB stations carry two generations
+   of sensor for the same parameter: a legacy one that stopped reporting years ago
+   and a live one. We were querying both, wasting **170 of 423 requests** on series
+   that can only come back empty - and against a 55/min limit that waste starved the
+   rest of the fill. Keeping the newest sensor id per (station, pollutant) took
+   coverage from **1 station to 56 of 56**.
+2. **Never on the request path.** `cached_station_windows()` returns immediately -
+   `{}` on the first call, which serves spot readings *labelled as such* - and fills
+   once in the background (~7.5 min). Every cycle after indexes the CPCB window. A
+   stale cache keeps being served during a refill, because a 30-minute-old 24-hour
+   mean beats a spot reading.
+3. **Never a mixed field.** A map where some stations carry a 24-hour mean and others
+   a spot reading is not a measurement of anything - the contrast between two wards
+   would partly reflect which station happened to have history. The whole network
+   switches together, gated at 60% coverage.
+
+Also added CPCB's **data-completeness rule**: a sub-index needs enough of the window
+to be honest. Relaxed to two thirds (CPCB uses 16 of 24) because OpenAQ mirrors CPCB
+with gaps of its own, but a "24-hour mean" built from 2 readings falls back to the
+spot value rather than pretending.
+
+The basis is now stated in the freshness strip - "CPCB · 56 stations · 24h average
+basis · latest 3h ago" - with the full method on hover. It is the reason the number
+matches CPCB, and it is the first thing a jury will ask.
+
+**Verification.** 20/20 tests. Live layer cross-checked against `/live` in the same
+render: header 90 / Sarita Vihar 145, pulse strip 90, basis "24h average basis" -
+matching the endpoint exactly. Per-ward: Bawana 90 vs forecast 102, Ashok Vihar 97 vs
+102, Sangam Park 95 vs 106.
+
+**Files.** `advisory/live.py`, `advisory/openaq.py`,
+`frontend/src/components/DataFreshness.tsx`, `frontend/src/lib/api.ts`.

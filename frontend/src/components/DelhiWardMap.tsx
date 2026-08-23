@@ -34,10 +34,14 @@ export function DelhiWardMap({
   /** Measured AQI per ward. When horizon is "now" the map paints these instead of
    *  the forecast, so the control actually changes what the city looks like. */
   liveAqi?: Map<string, number>;
-  /** Wards to mark as "go here first". Drawn as a heavy outline, never as a fill:
-   *  fill is reserved for the CPCB band, so colour always means air quality and
-   *  nothing else. Painting rank into the fill made clean wards red and left
-   *  genuinely bad ones yellow - the map contradicted its own legend. */
+  /** Wards to mark as "go here first" - painted solid red so they carry across a
+   *  room, which an outline does not.
+   *
+   *  This is a RANK overlay, and it deliberately overrides the CPCB band colour for
+   *  these wards. That is only safe because the ranking and the fill now read the
+   *  same number: whatever horizon the map is painting, these ARE its highest wards,
+   *  so red never lands on a ward that is cleaner than a yellow one beside it. The
+   *  band is still one hover away, and the hover card says "worst 10". */
   urgentIds?: string[];
   selectedId?: string | null;
   /** The user's own ward (from geolocation) - gets a "you are here" pin. */
@@ -151,11 +155,17 @@ export function DelhiWardMap({
             <path
               key={s.id + s.name}
               d={s.d}
-              // Fill is ALWAYS the CPCB band: red means bad air, green means clean
-              // air, on every map in the product. Rank rides on the outline.
-              fill={cat ? cat.color : "var(--surface-2)"}
+              // Band colour everywhere, except the ranked wards, which are filled
+              // red so "where do we go first" survives a projector at the back of
+              // the room. Safe only because rank and fill agree on the number.
+              fill={
+                urgent.has(s.id) ? "var(--aqi-very-poor)"
+                  : cat ? cat.color
+                  : "var(--surface-2)"
+              }
               fillOpacity={
-                cat ? (ambient ? 0.5 : isHover || isSel ? 0.98 : urgent.has(s.id) ? 0.95 : 0.78)
+                urgent.has(s.id) ? (ambient ? 0.75 : 1)
+                  : cat ? (ambient ? 0.5 : isHover || isSel ? 0.98 : 0.78)
                   : 0.45
               }
               stroke={
@@ -273,6 +283,7 @@ export function DelhiWardMap({
                 </div>
                 <div className="mono mt-0.5 whitespace-nowrap text-[11px] text-text-mute">
                   {cat.label}
+                  {hoverId && urgent.has(hoverId) ? " · worst 10" : ""}
                   {hovered
                     ? hovered.dominant_source
                       ? ` · ${hovered.dominant_source}`

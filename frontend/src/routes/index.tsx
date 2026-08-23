@@ -45,6 +45,19 @@ export const Route = createFileRoute("/")({
 function Landing() {
   const live = useQuery(wardsQuery());
   const heroWards = live.isSuccess && live.data.wards.length > 0 ? live.data.wards : null;
+  // Same convention as every other map in the product: the ten worst wards are
+  // filled red. Ranked on the +24 h number this hero paints, so the fill and the
+  // rank never disagree.
+  const heroWorst = useMemo(
+    () =>
+      heroWards
+        ? [...heroWards]
+            .sort((a, b) => wardAqiAt(b, "24") - wardAqiAt(a, "24"))
+            .slice(0, 10)
+            .map((w) => w.zone_id)
+        : [],
+    [heroWards],
+  );
   const my = useMyWard();
 
   return (
@@ -127,13 +140,14 @@ function Landing() {
               <DelhiWardMap
                 liveWards={heroWards}
                 horizon="24"
+                urgentIds={heroWorst}
                 hereId={my.status === "found" ? my.zone?.zone_id ?? null : null}
                 ambient
               />
             </div>
             <p className="mono mt-3 text-center text-[11px] text-text-mute">
               {heroWards
-                ? "Real MCD ward boundaries · colored by tomorrow's live forecast"
+                ? "Real MCD ward boundaries · colored by tomorrow's forecast · 10 worst in red"
                 : "Real MCD ward boundaries · live colors load with the pipeline"}
             </p>
           </div>

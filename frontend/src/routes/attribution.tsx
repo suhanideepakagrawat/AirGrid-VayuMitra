@@ -257,7 +257,7 @@ function Attribution() {
           <div className="grid gap-px bg-border lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <div className="bg-panel p-4">
               <div className="mono mb-2 text-[11px] text-text-mute">
-                Worst 10 wards · outlined{isNow(horizon) ? " · measured now" : ` · +${horizon} h`}
+                Worst 10 wards · filled red{isNow(horizon) ? " · measured now" : ` · +${horizon} h`}
               </div>
               <div className="h-[300px] md:h-[380px]">
                 <DelhiWardMap

@@ -873,3 +873,37 @@ on every one; none of the three removed captions found anywhere; no "+now h".
 **Files.** `frontend/src/components/DelhiWardMap.tsx`,
 `frontend/src/routes/attribution.tsx`, `frontend/src/routes/enforcement.tsx`,
 `frontend/src/routes/dashboard.tsx`, `frontend/src/routes/index.tsx`.
+
+---
+
+## B19 - Worst wards filled red on every map (24 Aug 2026)
+
+The worst-hit wards were outlined. Outlines disappear at projector distance, so they
+are filled solid `--aqi-very-poor` at full opacity, on every map that ranks wards:
+
+| Map | Red wards | What red marks |
+|---|---:|---|
+| Landing hero | 10 | worst at +24 h, the number that map paints |
+| Dashboard | 10 | worst at the selected horizon |
+| Attribution | 10 | worst at the selected horizon |
+| Enforcement | 15 | wards holding a ranked source - dispatch first |
+
+**Why this is safe now and was not before.** This is a rank overlay: it deliberately
+overrides the CPCB band colour for those wards. When it was first tried, the map
+painted the +24 h forecast while the ranking sorted on live values, and the ward AQI
+disagreed with its own pollutant panel (B16, B17) - so red landed on wards that were
+cleaner than yellow ones beside them, which is exactly what was reported. Both causes
+are fixed: every map now ranks on the same number it paints, at whatever horizon is
+selected, so the red wards are that map's highest by construction. The hero map ranks
+on +24 h because that is what it paints.
+
+The CPCB band is never lost - it is one hover away, and the hover card now appends
+"· worst 10" so a red ward reads, for example, "Moderate · worst 10 · Traffic/Roads"
+rather than implying a band it is not in.
+
+**Verification.** 20/20 tests. Five routes x two viewports: red counts 10/10/10/15/0
+exactly as intended (Citizen advisory has no ward map), zero JS errors, zero
+horizontal overflow, zero grey wards.
+
+**Files.** `frontend/src/components/DelhiWardMap.tsx`, `frontend/src/routes/index.tsx`,
+`frontend/src/routes/attribution.tsx`, `frontend/src/routes/enforcement.tsx`.

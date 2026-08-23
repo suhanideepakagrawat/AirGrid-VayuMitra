@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+
+  "baseline": {
+    "xgb_weight": 0.60,
+    "idw_weight": 0.40
+  },
+
+  "residual": {
+    "enabled": true,
+
+    "regimes": {
+      "lt50": {
+        "min": -999999,
+        "max": 50,
+        "lambda": 0.70,
+        "threshold": 5.0,
+        "cap": 30.0,
+        "enabled": true
+      },
+
+      "50_100": {
+        "min": 50,
+        "max": 100,
+        "lambda": 0.80,
+        "threshold": 0.0,
+        "cap": 75.0,
+        "enabled": true
+      },
+
+      "100_plus": {
+        "min": 100,
+        "max": 999999,
+        "lambda": 0.0,
+        "threshold": 0.0,
+        "cap": 0.0,
+        "enabled": false
+      }
+    }
+  },
+
+  "safety": {
+    "fallback_to_baseline": true,
+    "max_absolute_aqi": 500.0,
+    "min_absolute_aqi": 0.0,
+    "max_correction_absolute": 75.0
+  }
+}

@@ -1,220 +1,682 @@
 """
 fetch_forecast_weather.py
 --------------------------
-Fetches the next 72h of hourly forecast weather for Delhi from
-Open-Meteo's FORECAST endpoint (not archive — this is the live
-inference piece the train_forecaster.py docstring explicitly requires).
 
-WHY THIS EXISTS
----------------
-train_forecaster.py uses `target_wind_speed`, `target_temp`, etc. —
-weather AT the future timestamp t+horizon. During training, that was
-historical-actual weather (already happened, from Open-Meteo archive).
-At live inference the future hasn't happened yet, so you MUST replace
-it with a real forecast. This script fetches exactly that.
+AirGrid production weather provider.
 
-No API key required — Open-Meteo forecast is free and unauthenticated.
-One HTTP request covers all 72 hours for the whole city (city-level
-weather, same as what was used during training).
+Provides TWO types of weather:
 
-OUTPUT
-------
-data/forecast_weather.csv
-    timestamp, target_temp, target_humidity, target_wind_speed,
+1. CURRENT WEATHER
+   Used for source-time inference features:
+       wind_speed
+       wind_dir
+       temp
+       humidity
+
+2. HOURLY FORECAST WEATHER
+   Used for target-time inference features:
+       target_wind_speed
+       target_wind_dir
+       target_temp
+       target_humidity
+
+Source:
+    Open-Meteo forecast API
+
+No API key required.
+
+Outputs:
+    data/forecast_weather.csv
+
+The forecast CSV contains:
+
+    timestamp
+    target_temp
+    target_humidity
+    target_wind_speed
     target_wind_dir
-
-Column names match what train_forecaster.py's FEATURE_COLS_BASE
-expects at inference time — rename the historical columns to these
-before calling model.predict().
-
-USAGE
------
-Standalone (writes CSV):
-    python3 src/fetch_forecast_weather.py
-
-As a module (returns DataFrame directly):
-    from fetch_forecast_weather import get_forecast_weather
-    fw = get_forecast_weather()   # DataFrame, 72 rows, one per hour
+    fetched_at
 """
 
 import os
-import requests
-import pandas as pd
 from datetime import datetime, timezone
 
+import requests
+import pandas as pd
+
+
+# ============================================================================
+# CITY
+# ============================================================================
+
 CITY = {
-    "name":       "Delhi",
+    "name": "Delhi",
     "lat_center": 28.65,
     "lon_center": 77.10,
 }
 
-# Open-Meteo forecast endpoint — free, no key, up to 16 days ahead
-OPENMETEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-FORECAST_HOURS = 96   # 24h buffer beyond the 72h model horizon — see inference note
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-OUT_PATH = os.path.join(DATA_DIR, "forecast_weather.csv")
+# ============================================================================
+# OPEN-METEO
+# ============================================================================
+
+OPENMETEO_FORECAST_URL = (
+    "https://api.open-meteo.com/v1/forecast"
+)
 
 
-def get_forecast_weather(hours: int = FORECAST_HOURS) -> pd.DataFrame:
+# 120 hours gives a comfortable buffer beyond the 72h model horizon.
+FORECAST_HOURS = 120
+
+
+# ============================================================================
+# PATHS
+# ============================================================================
+
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+DATA_DIR = os.path.join(
+    PROJECT_ROOT,
+    "data"
+)
+
+os.makedirs(
+    DATA_DIR,
+    exist_ok=True
+)
+
+OUT_PATH = os.path.join(
+    DATA_DIR,
+    "forecast_weather.csv"
+)
+
+
+# ============================================================================
+# CURRENT WEATHER
+# ============================================================================
+
+def get_current_weather() -> dict:
     """
-    Fetch the next N hourly weather forecasts from Open-Meteo.
+    Fetch current weather for Delhi.
 
-    Uses forecast_hours (not forecast_days + head()) so the series
-    always starts from NOW, never from the beginning of the local day.
-    Running at 7 PM with forecast_days=4 + head(72) would include
-    hours that already passed — forecast_hours avoids that entirely.
+    Used for SOURCE-TIME model features.
 
-    Returns a DataFrame with columns:
-        timestamp          — hourly Asia/Kolkata
-        target_temp        — °C
-        target_humidity    — %
-        target_wind_speed  — km/h  (explicit wind_speed_unit="kmh")
-        target_wind_dir    — degrees (0–360)
-        fetched_at         — ISO-8601 UTC, for staleness checks
+    Returns:
+
+        timestamp
+        wind_speed
+        wind_dir
+        temp
+        humidity
+
+    Units:
+
+        temperature  -> °C
+        humidity     -> %
+        wind_speed   -> km/h
+        wind_dir     -> degrees
     """
+
     params = {
-        "latitude":        CITY["lat_center"],
-        "longitude":       CITY["lon_center"],
+        "latitude": CITY["lat_center"],
+        "longitude": CITY["lon_center"],
+
+        "current": (
+            "temperature_2m,"
+            "relative_humidity_2m,"
+            "wind_speed_10m,"
+            "wind_direction_10m"
+        ),
+
+        "timezone": "Asia/Kolkata",
+
+        "wind_speed_unit": "kmh",
+    }
+
+    response = requests.get(
+        OPENMETEO_FORECAST_URL,
+        params=params,
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    if "current" not in payload:
+        raise RuntimeError(
+            "Open-Meteo response missing 'current'."
+        )
+
+    current = payload["current"]
+
+    required = [
+        "time",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "wind_speed_10m",
+        "wind_direction_10m",
+    ]
+
+    missing = [
+        key
+        for key in required
+        if key not in current
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "Open-Meteo current weather is missing "
+            f"fields: {missing}"
+        )
+
+    result = {
+        "timestamp": pd.Timestamp(
+            current["time"]
+        ),
+
+        "wind_speed": float(
+            current["wind_speed_10m"]
+        ),
+
+        "wind_dir": float(
+            current["wind_direction_10m"]
+        ),
+
+        "temp": float(
+            current["temperature_2m"]
+        ),
+
+        "humidity": float(
+            current["relative_humidity_2m"]
+        ),
+    }
+
+    return result
+
+
+# ============================================================================
+# FORECAST WEATHER
+# ============================================================================
+
+def get_forecast_weather(
+    hours: int = FORECAST_HOURS
+) -> pd.DataFrame:
+    """
+    Fetch hourly forecast weather.
+
+    Used for TARGET-TIME weather features.
+
+    Returns:
+
+        timestamp
+        target_temp
+        target_humidity
+        target_wind_speed
+        target_wind_dir
+        fetched_at
+    """
+
+    params = {
+        "latitude": CITY["lat_center"],
+        "longitude": CITY["lon_center"],
+
         "hourly": (
             "temperature_2m,"
             "relative_humidity_2m,"
             "wind_speed_10m,"
             "wind_direction_10m"
         ),
-        "timezone":        "Asia/Kolkata",
-        "forecast_hours":  hours,          # exact hours from now, not rounded days
-        "wind_speed_unit": "kmh",          # match Open-Meteo archive units used during training
+
+        "timezone": "Asia/Kolkata",
+
+        "forecast_hours": hours,
+
+        "wind_speed_unit": "kmh",
     }
-    resp = requests.get(OPENMETEO_FORECAST_URL, params=params, timeout=30)
-    resp.raise_for_status()
 
-    payload = resp.json()
+    response = requests.get(
+        OPENMETEO_FORECAST_URL,
+        params=params,
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
     if "hourly" not in payload:
-        raise RuntimeError(f"Open-Meteo response missing 'hourly': {payload}")
-    h = payload["hourly"]
+        raise RuntimeError(
+            "Open-Meteo response missing 'hourly'."
+        )
 
-    df = pd.DataFrame({
-        "timestamp":        pd.to_datetime(h["time"]),
-        "target_temp":      pd.to_numeric(h["temperature_2m"],      errors="coerce"),
-        "target_humidity":  pd.to_numeric(h["relative_humidity_2m"], errors="coerce"),
-        "target_wind_speed": pd.to_numeric(h["wind_speed_10m"],     errors="coerce"),
-        "target_wind_dir":  pd.to_numeric(h["wind_direction_10m"],  errors="coerce"),
-    })
+    hourly = payload["hourly"]
 
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    required = [
+        "time",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "wind_speed_10m",
+        "wind_direction_10m",
+    ]
+
+    missing = [
+        key
+        for key in required
+        if key not in hourly
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "Open-Meteo forecast is missing "
+            f"fields: {missing}"
+        )
+
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                hourly["time"]
+            ),
+
+            "target_temp": pd.to_numeric(
+                hourly["temperature_2m"],
+                errors="coerce",
+            ),
+
+            "target_humidity": pd.to_numeric(
+                hourly["relative_humidity_2m"],
+                errors="coerce",
+            ),
+
+            "target_wind_speed": pd.to_numeric(
+                hourly["wind_speed_10m"],
+                errors="coerce",
+            ),
+
+            "target_wind_dir": pd.to_numeric(
+                hourly["wind_direction_10m"],
+                errors="coerce",
+            ),
+        }
+    )
+
+    df = (
+        df
+        .sort_values("timestamp")
+        .drop_duplicates(
+            subset=["timestamp"],
+            keep="last",
+        )
+        .reset_index(drop=True)
+    )
 
     if df.empty:
-        raise RuntimeError("Open-Meteo returned zero forecast rows.")
+        raise RuntimeError(
+            "Open-Meteo returned zero forecast rows."
+        )
 
-    weather_cols = ["target_temp", "target_humidity", "target_wind_speed", "target_wind_dir"]
-    missing = df[weather_cols].isna().sum()
-    if missing.any():
-        print("  [WARN] Missing forecast values:\n" + missing[missing > 0].to_string())
+    weather_cols = [
+        "target_temp",
+        "target_humidity",
+        "target_wind_speed",
+        "target_wind_dir",
+    ]
 
-    df["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    missing_values = (
+        df[weather_cols]
+        .isna()
+        .sum()
+    )
+
+    if missing_values.any():
+        print(
+            "\n  [WARN] Missing forecast values:"
+        )
+
+        print(
+            missing_values[
+                missing_values > 0
+            ].to_string()
+        )
+
+    fetched_at = datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    df["fetched_at"] = fetched_at
+
     return df
 
 
-def check_staleness(df: pd.DataFrame, max_age_hours: float = 6.0):
+# ============================================================================
+# STALENESS
+# ============================================================================
+
+def check_staleness(
+    df: pd.DataFrame,
+    max_age_hours: float = 6.0,
+):
     """
-    Warn if the cached forecast is older than max_age_hours.
-    Open-Meteo updates forecasts every hour — re-fetching every 6h at
-    inference time is a reasonable balance between freshness and API calls.
+    Check cached forecast age.
     """
-    if "fetched_at" not in df.columns or df.empty:
+
+    if (
+        df.empty
+        or "fetched_at" not in df.columns
+    ):
         return
-    fetched = pd.to_datetime(df["fetched_at"].iloc[0], utc=True)
-    age_hours = (datetime.now(timezone.utc) - fetched).total_seconds() / 3600
+
+    fetched = pd.to_datetime(
+        df["fetched_at"].iloc[0],
+        utc=True,
+        errors="coerce",
+    )
+
+    if pd.isna(fetched):
+        print(
+            "  [WARN] Invalid fetched_at."
+        )
+        return
+
+    age_hours = (
+        datetime.now(timezone.utc)
+        - fetched
+    ).total_seconds() / 3600
+
     if age_hours > max_age_hours:
-        print(f"  [WARN] Forecast weather is {age_hours:.1f}h old (fetched at {fetched}). "
-              f"Re-run fetch_forecast_weather.py to refresh — "
-              f"stale forecasts quietly degrade inference accuracy.")
+
+        print(
+            f"  [WARN] Forecast weather is "
+            f"{age_hours:.1f}h old."
+        )
+
     else:
-        print(f"  [OK] Forecast weather is {age_hours:.1f}h old (within {max_age_hours}h threshold).")
+
+        print(
+            f"  [OK] Forecast weather is "
+            f"{age_hours:.1f}h old."
+        )
 
 
-def load_or_fetch(max_age_hours: float = 6.0) -> pd.DataFrame:
+# ============================================================================
+# LOAD OR FETCH
+# ============================================================================
+
+def load_or_fetch(
+    max_age_hours: float = 6.0,
+) -> pd.DataFrame:
     """
-    Load cached forecast if it exists, is structurally valid, and is fresh.
-    Re-fetches if the cache is missing, corrupt, old-format, or stale.
-    Use this in your inference pipeline instead of always calling
-    get_forecast_weather() directly.
+    Load a valid recent forecast cache.
+
+    Re-fetch if:
+
+        - file does not exist
+        - schema is invalid
+        - cache is empty
+        - fetched_at is invalid
+        - cache is stale
     """
+
     if os.path.exists(OUT_PATH):
+
         try:
-            df = pd.read_csv(OUT_PATH, parse_dates=["timestamp"])
+
+            df = pd.read_csv(
+                OUT_PATH,
+                parse_dates=["timestamp"],
+            )
 
             required = {
-                "timestamp", "target_temp", "target_humidity",
-                "target_wind_speed", "target_wind_dir", "fetched_at",
+                "timestamp",
+                "target_temp",
+                "target_humidity",
+                "target_wind_speed",
+                "target_wind_dir",
+                "fetched_at",
             }
-            missing_cols = required - set(df.columns)
-            if missing_cols:
-                print(f"  [cache invalid] Missing columns: {sorted(missing_cols)} — re-fetching ...")
+
+            missing = (
+                required
+                - set(df.columns)
+            )
+
+            if missing:
+
+                print(
+                    "  [cache invalid] Missing "
+                    f"columns: {sorted(missing)}"
+                )
+
             elif df.empty:
-                print("  [cache invalid] Empty cache — re-fetching ...")
+
+                print(
+                    "  [cache invalid] Empty cache."
+                )
+
             else:
-                fetched = pd.to_datetime(df["fetched_at"].iloc[0], utc=True, errors="coerce")
+
+                fetched = pd.to_datetime(
+                    df["fetched_at"].iloc[0],
+                    utc=True,
+                    errors="coerce",
+                )
+
                 if pd.isna(fetched):
-                    print("  [cache invalid] Bad fetched_at — re-fetching ...")
+
+                    print(
+                        "  [cache invalid] "
+                        "Bad fetched_at."
+                    )
+
                 else:
-                    age_hours = (datetime.now(timezone.utc) - fetched).total_seconds() / 3600
-                    if 0 <= age_hours <= max_age_hours:
-                        print(f"  [cache] Forecast weather loaded ({age_hours:.1f}h old).")
+
+                    age_hours = (
+                        datetime.now(timezone.utc)
+                        - fetched
+                    ).total_seconds() / 3600
+
+                    if (
+                        0 <= age_hours
+                        <= max_age_hours
+                    ):
+
+                        print(
+                            f"  [cache] Forecast weather "
+                            f"loaded ({age_hours:.1f}h old)."
+                        )
+
                         return df
-                    print(f"  [stale] Cached forecast is {age_hours:.1f}h old — re-fetching ...")
-        except Exception as e:
-            print(f"  [cache invalid] {e} — re-fetching ...")
+
+                    print(
+                        f"  [stale] Cached forecast "
+                        f"is {age_hours:.1f}h old."
+                    )
+
+        except Exception as exc:
+
+            print(
+                f"  [cache invalid] {exc}"
+            )
+
+    print(
+        "  [fetch] Downloading fresh "
+        "forecast weather ..."
+    )
 
     df = get_forecast_weather()
-    df.to_csv(OUT_PATH, index=False)
+
+    df.to_csv(
+        OUT_PATH,
+        index=False,
+    )
+
     return df
 
 
-def print_summary(df: pd.DataFrame):
-    print(f"\n  City          : {CITY['name']}")
-    print(f"  Rows          : {len(df)} hours")
-    print(f"  Window        : {df['timestamp'].min()} → {df['timestamp'].max()}")
-    print(f"  Fetched at    : {df['fetched_at'].iloc[0]}")
-    print(f"\n  Weather range:")
-    print(f"    temp         : {df['target_temp'].min():.1f}°C – {df['target_temp'].max():.1f}°C")
-    print(f"    humidity     : {df['target_humidity'].min():.0f}% – {df['target_humidity'].max():.0f}%")
-    print(f"    wind speed   : {df['target_wind_speed'].min():.1f} – {df['target_wind_speed'].max():.1f} km/h")
-    print(f"    wind dir     : {df['target_wind_dir'].min():.0f}° – {df['target_wind_dir'].max():.0f}°")
-    print(f"\n  First 5 rows:")
-    print(df[["timestamp","target_temp","target_humidity",
-              "target_wind_speed","target_wind_dir"]].head(5).to_string(index=False))
+# ============================================================================
+# SUMMARY
+# ============================================================================
 
+def print_summary(
+    df: pd.DataFrame
+):
+
+    print(
+        f"\n  City          : "
+        f"{CITY['name']}"
+    )
+
+    print(
+        f"  Rows          : "
+        f"{len(df)} hours"
+    )
+
+    print(
+        f"  Window        : "
+        f"{df['timestamp'].min()} → "
+        f"{df['timestamp'].max()}"
+    )
+
+    print(
+        f"  Fetched at    : "
+        f"{df['fetched_at'].iloc[0]}"
+    )
+
+    print("\n  Weather range:")
+
+    print(
+        f"    temp         : "
+        f"{df['target_temp'].min():.1f}°C – "
+        f"{df['target_temp'].max():.1f}°C"
+    )
+
+    print(
+        f"    humidity     : "
+        f"{df['target_humidity'].min():.0f}% – "
+        f"{df['target_humidity'].max():.0f}%"
+    )
+
+    print(
+        f"    wind speed   : "
+        f"{df['target_wind_speed'].min():.1f} – "
+        f"{df['target_wind_speed'].max():.1f} km/h"
+    )
+
+    print(
+        f"    wind dir     : "
+        f"{df['target_wind_dir'].min():.0f}° – "
+        f"{df['target_wind_dir'].max():.0f}°"
+    )
+
+    print("\n  First 5 rows:")
+
+    print(
+        df[
+            [
+                "timestamp",
+                "target_temp",
+                "target_humidity",
+                "target_wind_speed",
+                "target_wind_dir",
+            ]
+        ]
+        .head(5)
+        .to_string(index=False)
+    )
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
 
 def main():
-    print(f"\n{'='*60}")
-    print(f"  Forecast Weather — {CITY['name']} (next {FORECAST_HOURS}h)")
-    print(f"  Source: Open-Meteo forecast (free, no key)")
-    print(f"{'='*60}\n")
 
-    print(f"  Fetching {FORECAST_HOURS}h hourly forecast (96h so +72h target always in range) ...")
-    df = get_forecast_weather(FORECAST_HOURS)
-    df.to_csv(OUT_PATH, index=False)
+    print(
+        f"\n{'=' * 70}"
+    )
 
-    print_summary(df)
-    print(f"\n  ✓ Saved: {OUT_PATH}")
-    print(f"\n  ⚠  UNITS CHECK (verify before inference):")
-    print(f"     This script produces: temp °C, humidity %, wind km/h, wind_dir degrees.")
-    print(f"     fetch_real_data.py used Open-Meteo archive with windspeed_10m (km/h by default).")
-    print(f"     If your training data used m/s instead, model inputs will be wrong")
-    print(f"     even though this script runs perfectly. Check data/training_dataset.csv:")
-    print(f"       import pandas as pd")
-    print(f"       pd.read_csv('data/training_dataset.csv')['wind_speed'].describe()")
-    print(f"    from fetch_forecast_weather import load_or_fetch")
-    print(f"    fw = load_or_fetch().set_index('timestamp')")
-    print(f"    # fw has 96 rows (hours). For a source time t and horizon h:")
-    print(f"    #   target_ts = t + pd.Timedelta(hours=h)  # e.g. +24, +48, +72")
-    print(f"    #   weather_at_target = fw.loc[target_ts]")
-    print(f"    # The 96h window provides buffer for +72h targets.")
-    print(f"    # Inference must still verify that the exact target timestamp exists.")
-    print(f"\n{'='*60}\n")
+    print(
+        f"  AirGrid — Weather Provider"
+    )
+
+    print(
+        f"  City: {CITY['name']}"
+    )
+
+    print(
+        f"{'=' * 70}\n"
+    )
+
+    # ------------------------------------------------------------------
+    # CURRENT WEATHER
+    # ------------------------------------------------------------------
+
+    print(
+        "[1/2] Fetching current weather"
+    )
+
+    current = get_current_weather()
+
+    print(
+        f"  timestamp : "
+        f"{current['timestamp']}"
+    )
+
+    print(
+        f"  temp      : "
+        f"{current['temp']:.1f} °C"
+    )
+
+    print(
+        f"  humidity  : "
+        f"{current['humidity']:.0f} %"
+    )
+
+    print(
+        f"  wind      : "
+        f"{current['wind_speed']:.1f} km/h"
+    )
+
+    print(
+        f"  direction : "
+        f"{current['wind_dir']:.0f}°"
+    )
+
+    # ------------------------------------------------------------------
+    # FORECAST WEATHER
+    # ------------------------------------------------------------------
+
+    print(
+        f"\n[2/2] Fetching "
+        f"{FORECAST_HOURS}h forecast"
+    )
+
+    forecast = get_forecast_weather(
+        FORECAST_HOURS
+    )
+
+    forecast.to_csv(
+        OUT_PATH,
+        index=False,
+    )
+
+    print_summary(
+        forecast
+    )
+
+    print(
+        f"\n  ✓ Saved: {OUT_PATH}"
+    )
+
+    print(
+        f"\n{'=' * 70}\n"
+    )
 
 
 if __name__ == "__main__":

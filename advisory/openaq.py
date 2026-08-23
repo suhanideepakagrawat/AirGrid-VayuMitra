@@ -25,6 +25,7 @@ Two traps this module handles, both found by inspecting the real API:
 from __future__ import annotations
 
 import concurrent.futures
+import datetime as _dt
 import os
 import threading
 import time
@@ -94,17 +95,58 @@ def available() -> bool:
     return bool(api_key())
 
 
-def _get(path: str, params: dict | None = None) -> dict | None:
+# OpenAQ allows 60 requests per minute. The 24h window fetch alone needs ~320 calls
+# (one per station per pollutant), so without pacing it burns the whole allowance in
+# seconds and everything after it 429s. That is not hypothetical: it is what made a
+# forecast run abort with "No live OpenAQ stations" and what pinned the window cache
+# empty. A shared token bucket keeps every call in this module inside the budget.
+_RATE_LIMIT = 55                # a little under 60, for headroom
+_RATE_WINDOW = 60.0
+_rate_lock = threading.Lock()
+_recent_calls: list[float] = []
+
+
+def _throttle() -> None:
+    """Block until sending one more request stays inside the per-minute budget."""
+    while True:
+        with _rate_lock:
+            now = time.time()
+            _recent_calls[:] = [t for t in _recent_calls if now - t < _RATE_WINDOW]
+            if len(_recent_calls) < _RATE_LIMIT:
+                _recent_calls.append(now)
+                return
+            wait = _RATE_WINDOW - (now - _recent_calls[0]) + 0.05
+        time.sleep(max(0.05, wait))
+
+
+def _get(path: str, params: dict | None = None, _retries: int = 2) -> dict | None:
     key = api_key()
     if not key:
         return None
-    try:
-        r = requests.get(f"{BASE}{path}", params=params or {},
-                         headers={"X-API-Key": key}, timeout=_HTTP_TIMEOUT)
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return None
+    for attempt in range(_retries + 1):
+        _throttle()
+        try:
+            r = requests.get(f"{BASE}{path}", params=params or {},
+                             headers={"X-API-Key": key}, timeout=_HTTP_TIMEOUT)
+            if r.status_code == 429:
+                # Honour the server's own reset hint rather than guessing.
+                reset = r.headers.get("x-ratelimit-reset") or r.headers.get("retry-after")
+                try:
+                    delay = min(75.0, float(reset)) if reset else 10.0
+                except ValueError:
+                    delay = 10.0
+                if attempt < _retries:
+                    time.sleep(delay + 0.5)
+                    continue
+                return None
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            if attempt < _retries:
+                time.sleep(2.0)
+                continue
+            return None
+    return None
 
 
 def _hours_since(iso: str | None) -> float:
@@ -238,3 +280,77 @@ def cache_age_seconds() -> float | None:
     """Seconds since the readings cache was filled; None if never."""
     with _lock:
         return None if _latest_cache is None else time.time() - _latest_cache[0]
+
+
+# ---------------------------------------------------------------------------
+# Averaging windows — required to compute a CPCB-comparable AQI.
+# ---------------------------------------------------------------------------
+
+WINDOW_HOURS = 24
+_WINDOW_TTL = 1800.0        # a 24h mean barely moves in half an hour
+_window_cache: tuple[float, dict] | None = None
+
+
+def station_windows(hours: int = WINDOW_HOURS, force: bool = False) -> dict:
+    """Per station, the last `hours` of readings for each pollutant.
+
+    The CPCB National AQI is **not** defined on a spot reading. Its breakpoints are
+    for a 24-hour average (8-hour for CO and O3), which is why an hourly value pushed
+    through them does not match what CPCB publishes. Measured against our own
+    stations, using the latest hour instead of the 24h mean shifted the index by an
+    average of 24 AQI, by as much as 154 at one station, and changed which pollutant
+    was named as dominant at 5 of 26 stations.
+
+    Returns {station_id: {"pollutant": [values...], ...}}. Cached for 30 minutes
+    because this costs roughly one request per station per pollutant.
+    """
+    global _window_cache
+    with _lock:
+        if not force and _window_cache and time.time() - _window_cache[0] < _WINDOW_TTL:
+            return _window_cache[1]
+
+    locs = fetch_locations()
+    if not locs:
+        return {}
+
+    since = (_dt.datetime.now(_dt.timezone.utc)
+             - _dt.timedelta(hours=hours + 2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    jobs = []
+    for loc in locs:
+        for sensor_id, (name, factor) in loc["sensors"].items():
+            if name in ("pm25", "pm10", "no2", "so2", "o3"):
+                jobs.append((loc["id"], name, sensor_id, factor))
+
+    def _one(job):
+        sid, name, sensor_id, factor = job
+        data = _get(f"/sensors/{sensor_id}/hours",
+                    {"datetime_from": since, "limit": hours + 12})
+        vals = []
+        for row in (data or {}).get("results", []):
+            v = row.get("value")
+            if v is None or float(v) < 0:
+                continue
+            stamp = ((row.get("period") or {}).get("datetimeFrom") or {}).get("utc")
+            if stamp and _hours_since(stamp) <= hours:
+                vals.append(float(v) * factor)
+        return sid, name, vals
+
+    out: dict[int, dict[str, list[float]]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+        for sid, name, vals in pool.map(_one, jobs):
+            if vals:
+                out.setdefault(sid, {})[name] = vals
+
+    # NEVER cache an empty result. A single rate-limited or flaky fetch would
+    # otherwise pin "no history at all" for the full TTL, silently dropping the whole
+    # service back to single-hour AQI for half an hour — which is exactly the
+    # inaccuracy this function exists to remove. Better to retry next call and, if
+    # there is a previous good result, keep serving that.
+    if not out:
+        with _lock:
+            return _window_cache[1] if _window_cache else {}
+
+    with _lock:
+        _window_cache = (time.time(), out)
+    return out

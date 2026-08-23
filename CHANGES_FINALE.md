@@ -907,3 +907,53 @@ horizontal overflow, zero grey wards.
 
 **Files.** `frontend/src/components/DelhiWardMap.tsx`, `frontend/src/routes/index.tsx`,
 `frontend/src/routes/attribution.tsx`, `frontend/src/routes/enforcement.tsx`.
+
+---
+
+## B20 - Scroll to zoom, drag to pan, pinch on touch (24 Aug 2026)
+
+The maps zoomed only through the +/- buttons, and did it about the centre, so
+reaching a specific ward meant zooming and then hoping.
+
+**Zoom now anchors on the pointer.** Panning is held as the map point at the centre
+of the viewport, which makes the clamp trivial and survives any zoom change without a
+second source of truth. Screen-to-map conversion accounts for the letterboxing that
+`preserveAspectRatio="xMidYMid meet"` introduces - ignoring it made the anchor drift
+away from the cursor. Range widened from 0.6-4x to 0.6-8x.
+
+**Wheel behaviour depends on whether the page still has somewhere to scroll.** A map
+that eats the wheel is a trap on a scrolling page, so:
+
+| Page | Plain wheel | Ctrl / ⌘ + wheel |
+|---|---|---|
+| Dashboard, Enforcement (viewport-locked) | zooms | zooms |
+| Attribution, landing (page scrolls) | page scrolls, map shows a one-off hint | zooms |
+| Landing hero (ambient) | page scrolls - no listener at all | page scrolls |
+
+The check is `scrollHeight > clientHeight` at the moment of the event, so it follows
+the layout rather than a hardcoded list of routes, and a plain wheel says why it did
+nothing instead of silently ignoring the reader.
+
+**Also added:** drag to pan (clamped to the padded world so the city cannot be thrown
+off-screen), double-click to zoom in, and two-finger pinch. A gesture that moves more
+than 4px is a drag and no longer fires a ward selection on release - verified both
+ways: a plain click still selects, a drag no longer does.
+
+**`touch-action` is progressive, and this one matters.** `none` is what lets us own
+drag and pinch, but on a phone the map fills the column, so owning touch at rest means
+a swipe over it cannot scroll the page. At 1x the page keeps the gesture (`pan-y`);
+once the reader has zoomed in they clearly want to move around the map, so we take it.
+Verified on a 390px viewport: `touch-action: pan-y`, page still scrolls.
+
+**One latent bug fixed on the way.** The hover card was positioned from
+`cx / GEO.w`, which assumes the viewBox is the whole unzoomed map. It was already
+slightly off at 1x (the viewBox carries 14% padding) and would have detached
+completely once panning existed. It now derives from the live viewBox.
+
+**Verification.** 20/20 tests. Wheel zoom confirmed on the dashboard (viewBox
+1117 → 454 wide, anchored at the cursor); attribution confirmed to scroll the page and
+show the hint on a plain wheel, and to zoom on Ctrl+wheel without moving the page;
+drag pans while the viewBox size holds; double-click zooms. Five routes x two
+viewports: zero JS errors, zero horizontal overflow, red counts unchanged.
+
+**Files.** `frontend/src/components/DelhiWardMap.tsx`.

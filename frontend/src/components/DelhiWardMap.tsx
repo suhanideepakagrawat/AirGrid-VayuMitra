@@ -3,7 +3,7 @@
 // Wards are filled with their CPCB band color at the active horizon, so
 // switching +24/+48/+72 recolors the actual city. Click a ward to focus it.
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WARD_GEO from "@/data/delhi-wards.json";
 import {
   aqiCategory,
@@ -73,10 +73,178 @@ export function DelhiWardMap({
   // wide monitor where the map would otherwise dominate the column.
   const [zoom, setZoom] = useState(1);
   const FIT_PAD = 1.14;                     // breathing room at 1x
-  const vbW = (GEO.w * FIT_PAD) / zoom;
-  const vbH = (GEO.h * FIT_PAD) / zoom;
-  const vbX = (GEO.w - vbW) / 2;
-  const vbY = (GEO.h - vbH) / 2;
+  const MIN_ZOOM = 0.6;
+  const MAX_ZOOM = 8;
+
+  // The pannable world: Delhi plus the 1x padding. Panning is expressed as the map
+  // point at the centre of the viewport, which keeps the clamp trivial and survives
+  // any zoom change without a second source of truth.
+  const WORLD_W = GEO.w * FIT_PAD;
+  const WORLD_H = GEO.h * FIT_PAD;
+  const WORLD_X = (GEO.w - WORLD_W) / 2;
+  const WORLD_Y = (GEO.h - WORLD_H) / 2;
+
+  const [center, setCenter] = useState({ x: GEO.w / 2, y: GEO.h / 2 });
+
+  const clampCenter = useCallback(
+    (c: { x: number; y: number }, w: number, h: number) => ({
+      x: w >= WORLD_W
+        ? GEO.w / 2
+        : Math.min(Math.max(c.x, WORLD_X + w / 2), WORLD_X + WORLD_W - w / 2),
+      y: h >= WORLD_H
+        ? GEO.h / 2
+        : Math.min(Math.max(c.y, WORLD_Y + h / 2), WORLD_Y + WORLD_H - h / 2),
+    }),
+    [WORLD_W, WORLD_H, WORLD_X, WORLD_Y],
+  );
+
+  const vbW = WORLD_W / zoom;
+  const vbH = WORLD_H / zoom;
+  const safe = clampCenter(center, vbW, vbH);
+  const vbX = safe.x - vbW / 2;
+  const vbY = safe.y - vbH / 2;
+
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const [hint, setHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Screen point -> map point, using the viewBox actually on screen. */
+  const toMap = useCallback(
+    (clientX: number, clientY: number) => {
+      const r = frameRef.current?.getBoundingClientRect();
+      if (!r || !r.width || !r.height) return null;
+      // preserveAspectRatio="xMidYMid meet": the viewBox is letterboxed inside the
+      // frame, so the drawn area is the largest box of the viewBox's aspect that
+      // fits. Ignoring that offset made the cursor anchor drift.
+      const scale = Math.min(r.width / vbW, r.height / vbH);
+      const drawnW = vbW * scale;
+      const drawnH = vbH * scale;
+      const offX = (r.width - drawnW) / 2;
+      const offY = (r.height - drawnH) / 2;
+      return {
+        x: vbX + (clientX - r.left - offX) / scale,
+        y: vbY + (clientY - r.top - offY) / scale,
+        scale,
+      };
+    },
+    [vbW, vbH, vbX, vbY],
+  );
+
+  /** Zoom about a fixed map point, so whatever is under the cursor stays put. */
+  const zoomAt = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) => {
+      setZoom((z) => {
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor));
+        if (next === z) return z;
+        if (anchor) {
+          const k = z / next;
+          setCenter((c) => ({
+            x: anchor.x + (c.x - anchor.x) * k,
+            y: anchor.y + (c.y - anchor.y) * k,
+          }));
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setCenter({ x: GEO.w / 2, y: GEO.h / 2 });
+  }, []);
+
+  // Wheel zoom. Registered natively because a React wheel handler is passive and
+  // cannot preventDefault.
+  //
+  // A map that eats the wheel is a trap on a page the reader still needs to scroll,
+  // so plain wheel only zooms where the page has nothing left to scroll - the
+  // viewport-locked dashboard and enforcement panes. Everywhere else it needs
+  // Ctrl/Cmd, and a plain wheel says so once instead of silently doing nothing.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el || ambient) return;
+    const onWheel = (e: WheelEvent) => {
+      const doc = document.documentElement;
+      const pageScrolls = doc.scrollHeight > doc.clientHeight + 1;
+      if (pageScrolls && !e.ctrlKey && !e.metaKey) {
+        setHint(true);
+        if (hintTimer.current) clearTimeout(hintTimer.current);
+        hintTimer.current = setTimeout(() => setHint(false), 1600);
+        return;                                   // let the page scroll
+      }
+      e.preventDefault();
+      const at = toMap(e.clientX, e.clientY);
+      zoomAt(Math.exp(-e.deltaY * 0.0015), at ?? undefined);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [ambient, toMap, zoomAt]);
+
+  useEffect(() => () => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+  }, []);
+
+  // Drag to pan, and pinch to zoom on touch. Zooming without panning strands the
+  // reader as soon as their target leaves the frame.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; mid: { x: number; y: number } } | null>(null);
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  /** Set once a gesture moves far enough to be a drag, so it does not also fire a
+   *  ward selection on pointer-up. */
+  const movedRef = useRef(false);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (ambient) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    movedRef.current = false;
+    if (pointers.current.size === 1) {
+      dragRef.current = { x: e.clientX, y: e.clientY };
+    } else if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      pinchRef.current = {
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      };
+      dragRef.current = null;
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (ambient || !pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.current.size >= 2 && pinchRef.current) {
+      const [a, b] = [...pointers.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (pinchRef.current.dist > 0) {
+        movedRef.current = true;
+        const at = toMap(mid.x, mid.y);
+        zoomAt(dist / pinchRef.current.dist, at ?? undefined);
+      }
+      pinchRef.current = { dist, mid };
+      return;
+    }
+
+    const start = dragRef.current;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (!movedRef.current && Math.hypot(dx, dy) < 4) return;   // still a click
+    movedRef.current = true;
+    const r = frameRef.current?.getBoundingClientRect();
+    if (!r || !r.width) return;
+    const scale = Math.min(r.width / vbW, r.height / vbH);
+    dragRef.current = { x: e.clientX, y: e.clientY };
+    setCenter((c) => clampCenter({ x: c.x - dx / scale, y: c.y - dy / scale }, vbW, vbH));
+  };
+
+  const endPointer = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinchRef.current = null;
+    if (pointers.current.size === 0) dragRef.current = null;
+  };
 
   const [hoverId, setHoverId] = useState<string | null>(null);
 
@@ -135,7 +303,25 @@ export function DelhiWardMap({
     // full-width box just wrapped the shape in a wide empty band; matching the
     // aspect keeps the zoom controls and hover cards close to the map they belong to.
     <div
-      className={`relative mx-auto h-full w-auto max-w-full ${className}`}
+      ref={frameRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointer}
+      onPointerCancel={endPointer}
+      onPointerLeave={endPointer}
+      onDoubleClick={(e) => {
+        if (ambient) return;
+        const at = toMap(e.clientX, e.clientY);
+        zoomAt(1.8, at ?? undefined);
+      }}
+      // touch-action matters more than it looks. "none" is what lets us own drag and
+      // pinch, but on a phone the map fills the column, so owning touch at rest
+      // means a swipe over it cannot scroll the page. At 1x the page keeps the
+      // gesture (pan-y); once the reader has zoomed in they clearly want to move
+      // around the map, so we take it.
+      className={`relative mx-auto h-full w-auto max-w-full ${
+        ambient ? "" : zoom > 1 ? "cursor-grab touch-none active:cursor-grabbing" : "touch-pan-y"
+      } ${className}`}
       style={{ aspectRatio: `${GEO.w} / ${GEO.h}` }}
     >
       <svg
@@ -178,7 +364,7 @@ export function DelhiWardMap({
               style={{ transition: "fill 0.3s ease-out, fill-opacity 0.2s ease-out", cursor: !ambient && live && onPick ? "pointer" : "default" }}
               onMouseEnter={() => !ambient && setHoverId(s.id)}
               onMouseLeave={() => !ambient && setHoverId(null)}
-              onClick={() => !ambient && live && onPick?.(live)}
+              onClick={() => !ambient && !movedRef.current && live && onPick?.(live)}
             >
               {!ambient && <title>{live ? `${live.name} · AQI ${aqiOf(live)}` : `${s.name} · outside the forecast set`}</title>}
             </path>
@@ -227,24 +413,24 @@ export function DelhiWardMap({
       {!ambient && (
         <div className="absolute bottom-3 right-3 z-10 flex flex-col overflow-hidden rounded-md border border-border bg-panel shadow-[0_2px_8px_rgba(9,20,28,0.12)]">
           <button
-            onClick={() => setZoom((z) => Math.min(4, +(z + (z < 1 ? 0.2 : 0.4)).toFixed(2)))}
+            onClick={() => zoomAt(1.35)}
             aria-label="Zoom in"
             className="px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground"
           >
             +
           </button>
           <button
-            onClick={() => setZoom((z) => Math.max(0.6, +(z - (z <= 1 ? 0.2 : 0.4)).toFixed(2)))}
+            onClick={() => zoomAt(1 / 1.35)}
             aria-label="Zoom out"
-            disabled={zoom <= 0.6}
+            disabled={zoom <= MIN_ZOOM}
             className="border-t border-border px-2.5 py-1.5 text-[15px] leading-none text-text-dim hover:bg-surface-1 hover:text-foreground disabled:opacity-40"
           >
             &minus;
           </button>
-          {zoom !== 1 && (
+          {(zoom !== 1 || safe.x !== GEO.w / 2 || safe.y !== GEO.h / 2) && (
             <button
-              onClick={() => setZoom(1)}
-              aria-label="Reset zoom"
+              onClick={resetView}
+              aria-label="Reset zoom and position"
               className="mono border-t border-border px-1.5 py-1 text-[9px] text-text-mute hover:bg-surface-1"
             >
               {zoom.toFixed(1)}x
@@ -253,13 +439,23 @@ export function DelhiWardMap({
         </div>
       )}
 
+      {/* Says why a plain wheel did nothing, rather than leaving the reader to
+          guess. Only ever appears on pages that still have somewhere to scroll. */}
+      {hint && !ambient && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <span className="mono rounded-full bg-[rgba(9,20,28,0.82)] px-3.5 py-1.5 text-[12px] font-semibold text-white">
+            Hold Ctrl (⌘ on Mac) and scroll to zoom · or drag to pan
+          </span>
+        </div>
+      )}
+
       {/* Hover card - name, AQI, band, dominant source */}
       {!ambient && (hovered || hoveredEst !== undefined) && hoveredShape && (
         <div
           className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-md border border-border bg-panel px-3 py-2 shadow-[0_2px_8px_rgba(9,20,28,0.12)]"
           style={{
-            left: `${(hoveredShape.cx / GEO.w) * 100}%`,
-            top: `calc(${(hoveredShape.cy / GEO.h) * 100}% - 56px)`,
+            left: `${((hoveredShape.cx - vbX) / vbW) * 100}%`,
+            top: `calc(${((hoveredShape.cy - vbY) / vbH) * 100}% - 56px)`,
           }}
         >
           {(() => {

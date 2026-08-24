@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { MethodPanel } from "@/components/HowItWorks";
+import { ReasoningPanel } from "@/components/ReasoningPanel";
 import { aqiCategory } from "@/lib/air-data";
 import { CITIZEN_APP_URL, liveQuery, timeAgo, wardsQuery } from "@/lib/api";
 
@@ -196,6 +197,10 @@ function Health() {
               </div>
             )}
           </div>
+
+          {/* Renders itself only when the reasoning layer is actually up, so the
+              claim on screen is always one the API is currently backing. */}
+          <ReasoningPanel />
 
           <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3">
             {PERSONAS.map((p) => (

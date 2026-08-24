@@ -433,6 +433,77 @@ def chat_endpoint(req: ChatRequest) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+# ---------------------------------------------------------------------------
+# Reasoning layer: retrieval over the regulatory corpus, the knowledge graph, and
+# the agent pipeline that uses both. All three are additive and read-only; every
+# handler degrades to an "available: false" payload rather than raising, so a
+# failure here can never take down a surface that does not use it.
+# ---------------------------------------------------------------------------
+
+@router.get("/ai/pipeline", tags=["Reasoning layer"])
+def ai_pipeline_endpoint() -> dict:
+    """What the agent pipeline is, which model runs each stage, and how it fails."""
+    try:
+        from advisory import agents as agents_mod
+        return agents_mod.describe()
+    except Exception as exc:
+        return {"available": False, "reason": type(exc).__name__}
+
+
+@router.get("/rag/search", tags=["Reasoning layer"])
+def rag_search_endpoint(
+    q: str = Query(..., min_length=2, description="question or keywords"),
+    k: int = Query(default=4, ge=1, le=10),
+) -> dict:
+    """Passages from the regulatory corpus, each with its publisher, year and URL."""
+    try:
+        from advisory import rag as rag_mod
+        return {"available": rag_mod.available(), "query": q,
+                "corpus": rag_mod.stats(), "results": rag_mod.search(q, k)}
+    except Exception as exc:
+        return {"available": False, "reason": type(exc).__name__, "results": []}
+
+
+@router.get("/graph", tags=["Reasoning layer"])
+def graph_stats_endpoint() -> dict:
+    """Node and edge counts by type, for the knowledge graph."""
+    try:
+        from advisory import graph as graph_mod
+        return {"available": True, **graph_mod.stats()}
+    except Exception as exc:
+        return {"available": False, "reason": type(exc).__name__}
+
+
+@router.get("/graph/ward/{zone_id}", tags=["Reasoning layer"])
+def graph_ward_endpoint(
+    zone_id: str,
+    persona: str = Query(default="general"),
+) -> dict:
+    """The evidence chain for one ward, walked from the graph.
+
+    Ward to band to GRAP stage on the health side; ward to dominant source to
+    pollutant evidence to dispatch team and action on the enforcement side.
+    """
+    try:
+        from advisory import graph as graph_mod
+        got = graph_mod.explain_ward(zone_id, persona)
+    except Exception as exc:
+        return {"available": False, "reason": type(exc).__name__}
+    if got is None:
+        raise HTTPException(status_code=404, detail=f"unknown ward '{zone_id}'")
+    return {"available": True, **got}
+
+
+@router.get("/graph/ward/{zone_id}/subgraph", tags=["Reasoning layer"])
+def graph_subgraph_endpoint(zone_id: str) -> dict:
+    """Nodes and edges within two hops of a ward, for inspection or rendering."""
+    try:
+        from advisory import graph as graph_mod
+        return {"available": True, **graph_mod.subgraph(zone_id)}
+    except Exception as exc:
+        return {"available": False, "reason": type(exc).__name__}
+
+
 @router.get("/compare")
 def compare_endpoint(cities: str | None = Query(default=None)) -> dict:
     keys = [c.strip() for c in cities.split(",")] if cities else None
@@ -531,6 +602,15 @@ def _start_forecast_refresh() -> None:
                     from advisory import data as data_mod
                     data_mod.load_zones.cache_clear()
                     data_mod.forecast_provenance.cache_clear()
+
+                    # The knowledge graph is built from those same zones, so it would
+                    # otherwise answer from the previous run for up to six hours.
+                    try:
+                        from advisory import graph as graph_mod
+                        graph_mod.rebuild()
+                    except Exception as exc:
+                        print(f"[forecast-refresh] graph rebuild skipped: {exc}", flush=True)
+
                     print("[forecast-refresh] promoted a new run", flush=True)
 
                     # Enforcement targets are derived from the forecast, so they go

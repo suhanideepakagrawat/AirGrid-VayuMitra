@@ -85,13 +85,28 @@ def all_bands() -> list[Band]:
 
 
 def band_for_aqi(aqi: float) -> Band:
-    """Map an AQI value to its CPCB band (clamped to the severe band above 500)."""
-    bands = all_bands()
+    """Map an AQI value to its CPCB band (clamped to the severe band above 500).
+
+    Selected on the LOWER bound only, deliberately. The published CPCB ranges are
+    integer and contiguous only over integers - 0-50, then 51-100, then 101-200 - so a
+    fractional value sitting between an upper bound and the next lower bound (50.4,
+    100.5, 200.7) matched no band at all under a `lower <= aqi <= upper` test and fell
+    through to the "above the top range" case, returning **Severe**.
+
+    That was not cosmetic: interpolated ward AQI is fractional by construction, and a
+    ward reading 50.4 was being handed Severe health guidance. Two of 209 wards were in
+    that state when this was found.
+    """
+    bands = sorted(all_bands(), key=lambda b: b.lower)
+    # NaN compares False against everything, so guard it rather than letting it pick a
+    # band by accident. Missing data must not read as clean air on a health advisory.
+    if aqi != aqi:
+        return max(bands, key=lambda b: b.index)
+    chosen = bands[0]
     for b in bands:
-        if b.lower <= aqi <= b.upper:
-            return b
-    # Above the top range -> most severe band.
-    return max(bands, key=lambda b: b.index)
+        if aqi >= b.lower:
+            chosen = b
+    return chosen
 
 
 def band_by_index(index: int) -> Band:

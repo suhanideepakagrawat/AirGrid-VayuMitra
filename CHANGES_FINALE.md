@@ -957,3 +957,91 @@ drag pans while the viewBox size holds; double-click zooms. Five routes x two
 viewports: zero JS errors, zero horizontal overflow, red counts unchanged.
 
 **Files.** `frontend/src/components/DelhiWardMap.tsx`.
+
+---
+
+## B21 - RAG, a knowledge graph, and a four-agent pipeline (24 Aug 2026)
+
+The PS5 suggested-technologies list names multi-agent systems, RAG over document corpora
+and knowledge graphs, and we had none. Each is now real, each earns its place, and each
+found a bug on the way in. No new API keys: Groq covers the models, and retrieval is pure
+standard library.
+
+### RAG over the regulatory corpus
+
+`advisory/corpus/*.md` holds 5 documents (CPCB National AQI method, GRAP stages, WHO 2021
+guideline values, NCAP targets, pollutant source signatures), split at headings into 23
+passages, each carrying publisher, year and URL. `advisory/rag.py` indexes them with
+**BM25**, pure standard library.
+
+Not embeddings, deliberately: a sentence-transformer means torch, roughly half a gigabyte
+in a container that currently starts in seconds. BM25 is the standard lexical first stage
+in production stacks, it is exact and inspectable, and on a closed regulatory vocabulary
+the query words *are* the document words.
+
+The advisory could already name the authority behind a number. It can now quote what that
+authority says.
+
+### Knowledge graph
+
+`advisory/graph.py` builds a typed property graph from data the pipeline already
+produces: **266 nodes, 935 edges** across Ward, SourceCategory, Pollutant, Band,
+GrapStage, Persona, Authority, EnforcementTarget, Team and Action, with relations
+ATTRIBUTED_TO, IN_BAND, TRIGGERS, EMITS, INDICATES, HOSTS, HANDLED_BY, PERFORMS.
+
+`explain_ward()` walks it: ward to band to GRAP stage on the health side, ward to dominant
+source to pollutant evidence to team to action on the enforcement side. The evidence chain
+the product always implied is now a thing you can request. Rebuilt on every forecast
+refresh so it never lags the data.
+
+### Four-agent pipeline
+
+`advisory/agents.py`. One LLM call had a structural weakness we could not close from
+inside the prompt: nothing checked what came back.
+
+| Stage | Model | Job |
+|---|---|---|
+| Router | gpt-oss-20b | classify intent, choose what evidence would answer it |
+| Retriever | deterministic | BM25 passages + the ward's evidence chain |
+| Analyst | gpt-oss-120b | compose from retrieved evidence only |
+| **Verifier** | gpt-oss-20b | **reject any claim the evidence does not support** |
+
+A rejected draft is not retried into a worse one - it falls back to the deterministic CPCB
+template. The pipeline can only degrade toward the safe answer. `/chat` now reports
+`reasoning.mode` as `agentic_rag` or `single_pass`, with citations and the evidence chain.
+
+### Three bugs this work exposed
+
+1. **A live safety bug in `band_for_aqi`.** The CPCB ranges are integer and contiguous
+   only over integers - 0-50, then 51-100. A fractional AQI between an upper bound and the
+   next lower bound matched no band and fell through to the "above the top range" case,
+   returning **Severe**. Interpolated ward AQI is fractional by construction: **a ward
+   reading 50.4 was being handed Severe health guidance**, and two of 209 wards were in
+   that state. Now selected on the lower bound, with NaN guarded explicitly.
+2. **The analyst inverted persona escalation.** Told a persona was "advised 2 bands
+   earlier", it concluded a child's guidance comes from a *better* band and drafted "the
+   condition for your child is treated like the Good band. At this level it is generally
+   safe for children to play outdoors" - the exact inverse of the rule. **The verifier
+   caught it on both runs.** Root cause fixed in the wording; the backstop stays as the net.
+3. **The verifier over-rejected.** "Supported by" reads to a model as "restated verbatim",
+   so it rejected drafts that correctly used measured facts. Rewritten as a closed list of
+   five checkable violations, defaulting to approval.
+
+### Safety of the addition
+
+Additive only. New modules, new endpoints (`/ai/pipeline`, `/rag/search`, `/graph`,
+`/graph/ward/{id}`, `/graph/ward/{id}/subgraph`). Every handler degrades to
+`available: false` rather than raising. Verified with the LLM key removed: agents go
+unavailable, `/chat` falls back to single-pass and still answers, RAG and the graph keep
+working because both are deterministic. The frontend panel renders nothing at all unless
+the endpoint confirms the layer is up.
+
+**Verification.** 20/20 tests. 17 endpoints returning 200. Five routes x two viewports,
+zero JS errors, zero horizontal overflow. Agent pipeline answered 6 of 7 persona-varied
+questions; the one rejection was the verifier correctly catching a draft that claimed GRAP
+Stage III applies at AQI 101-200 when it is 401-450.
+
+**Files.** `advisory/corpus/*.md`, `advisory/rag.py`, `advisory/graph.py`,
+`advisory/agents.py`, `advisory/chat.py`, `advisory/health_bands.py`,
+`backend/advisory_api.py`, `frontend/src/components/ReasoningPanel.tsx`,
+`frontend/src/routes/health.tsx`.

@@ -137,7 +137,22 @@ def answer(
         horizon = "24"
 
     a = assess(zone, persona, horizon)
-    reply_en = _llm_reply(a, persona, message, history) or _template_reply(a, persona, intent)
+
+    # Try the grounded agent pipeline first: it retrieves regulatory passages and the
+    # ward's evidence chain, drafts from those only, and has a verifier that can reject
+    # its own draft. `used` is false for every failure mode, and we fall back to the
+    # single-call path that shipped before.
+    agent: dict = {"used": False}
+    try:
+        from advisory import agents as agents_mod
+        agent = agents_mod.answer(message, zone, persona.key, str(horizon))
+    except Exception:
+        agent = {"used": False, "reason": "agents unavailable"}
+
+    if agent.get("used"):
+        reply_en = agent["reply"]
+    else:
+        reply_en = _llm_reply(a, persona, message, history) or _template_reply(a, persona, intent)
     reply_local = reply_en if lang == "en" else translate.translate(reply_en, lang)
 
     return {
@@ -158,4 +173,14 @@ def answer(
         "reply": reply_local,
         "lang": lang,
         "llm_used": llm.available(),
+        # How the reply was produced, so the caller can show its provenance rather than
+        # having to trust it.
+        "reasoning": {
+            "mode": "agentic_rag" if agent.get("used") else "single_pass",
+            "verified": bool(agent.get("verified")),
+            "citations": agent.get("citations") or [],
+            "evidence_chain": agent.get("evidence_chain"),
+            "agents": [t.get("agent") for t in agent.get("trace", [])],
+            "fallback_reason": None if agent.get("used") else agent.get("reason"),
+        },
     }

@@ -17,6 +17,7 @@ import { API_BASE } from "@/lib/api";
 type Agent = { name: string; model: string; job: string };
 type Pipeline = {
   available: boolean;
+  used_by_chat?: boolean;
   agents?: Agent[];
   on_rejection?: string;
   corpus?: { documents?: number; passages?: number; authorities?: number; method?: string };
@@ -39,7 +40,10 @@ export function ReasoningPanel() {
   const [open, setOpen] = useState(false);
   const p = q.data;
 
+  // Render whenever the layer is actually up. Whether the chat route currently uses it
+  // is a separate fact, and one the panel states rather than implies.
   if (!q.isSuccess || !p?.available || !p.agents?.length) return null;
+  const usedByChat = p.used_by_chat !== false;
 
   return (
     <div className="border-b border-border px-5 py-3">
@@ -72,6 +76,14 @@ export function ReasoningPanel() {
             ))}
           </ol>
 
+          {!usedByChat && (
+            <p className="mono mt-3 rounded-md bg-surface-1 px-2.5 py-2 text-[11px] leading-snug text-text-dim">
+              Running and inspectable at <b className="text-foreground">/ai/pipeline</b>,{" "}
+              <b className="text-foreground">/rag/search</b> and{" "}
+              <b className="text-foreground">/graph</b>. Chat is currently set to the
+              single-pass path, which answers about four seconds faster.
+            </p>
+          )}
           {p.on_rejection && (
             <p className="mono mt-3 border-t border-border pt-2.5 text-[11px] leading-snug text-text-dim">
               If the verifier rejects a draft: <b className="text-foreground">{p.on_rejection}</b>.

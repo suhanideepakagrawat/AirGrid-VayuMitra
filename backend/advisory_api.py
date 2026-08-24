@@ -704,6 +704,20 @@ def create_app() -> FastAPI:
     _start_keepalive()
     _start_live_refresh()
     _start_forecast_refresh()
+
+    # The knowledge graph takes ~3 s to build from the ward data. Building it lazily made
+    # the first request that touched it pay that cost; building it here means no user
+    # ever does. Failure is not fatal - the graph rebuilds lazily if this never ran.
+    def _warm_graph() -> None:
+        try:
+            from advisory import graph as graph_mod
+            graph_mod.graph()
+        except Exception as exc:
+            print(f"[graph] warm-up skipped: {exc}", flush=True)
+
+    import threading as _threading
+    _threading.Thread(target=_warm_graph, daemon=True, name="graph-warm").start()
+
     # Demo-friendly CORS. Tighten to the deployed frontend origin in production.
     app.add_middleware(
         CORSMiddleware,

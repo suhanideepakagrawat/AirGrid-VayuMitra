@@ -40,9 +40,13 @@ from advisory import llm, rag
 from advisory.health_bands import band_by_index, band_for_aqi
 from advisory.personas import PERSONAS, Persona
 
-#: Off by default is the wrong default here - the pipeline degrades safely on its own -
-#: but the switch exists so a demo can be pinned to the deterministic path.
+#: Two switches, deliberately. ENABLED decides whether the pipeline exists at all.
+#: CHAT_ENABLED decides whether the citizen chat route uses it, which is a separate
+#: question: the pipeline adds about four seconds to a reply, and a live demo may want
+#: chat fast while /ai/pipeline, /rag/search and /graph stay genuinely up and inspectable.
+#: Turning chat off never makes the API claim a capability it does not have.
 ENABLED = os.getenv("AGENTS", "1") != "0"
+CHAT_ENABLED = ENABLED and os.getenv("AGENTS_CHAT", "1") != "0"
 
 _INTENTS = ("current", "forecast", "source", "action", "rule", "general")
 
@@ -55,32 +59,36 @@ def available() -> bool:
 # 1 · Router
 # ---------------------------------------------------------------------------
 
-_ROUTER_SYS = (
-    "You classify air-quality questions for a citizen advisory service in Delhi. "
-    "Reply with STRICT JSON only, no prose, matching exactly: "
-    '{"intent": one of ["current","forecast","source","action","rule","general"], '
-    '"needs_regulation": true|false, "needs_evidence_chain": true|false, '
-    '"search_query": "a short query for a regulatory document index"}. '
-    "intent=rule means the person is asking what a regulation says or why a rule exists. "
-    "intent=source means they are asking what is causing the pollution. "
-    "intent=action means they are asking what they personally should do."
-)
+#: Keyword intent routing. This used to be an LLM call. Measured against the raw
+#: question, the model's rewritten search query retrieved *worse* - on "Can my child play
+#: outside this evening?" the raw question finds "Sensitive groups" and "Populations at
+#: higher risk", while the rewrite ("Delhi child outdoor activity air quality regulation")
+#: found GRAP and NCAP boilerplate instead, because generic padding words match generic
+#: passages. It also cost about 1.3 s of a 6.8 s reply. Deterministic is faster, more
+#: accurate here, and cannot fail.
+_INTENT_WORDS: dict[str, tuple[str, ...]] = {
+    "rule": ("why", "how is", "how do you", "rule", "standard", "guideline", "regulation",
+             "grap", "cpcb", "who ", "average", "calculated", "measured"),
+    "source": ("source", "causing", "cause", "polluting", "blame", "responsible",
+               "traffic", "industry", "dust", "construction", "burning", "stubble"),
+    "forecast": ("tomorrow", "forecast", "next", "later", "predict", "48", "72", "day after"),
+    "action": ("should i", "can i", "can my", "is it safe", "safe to", "wear", "mask",
+               "go out", "outside", "outdoor", "exercise", "run", "walk", "play"),
+    "current": ("now", "right now", "today", "current", "at the moment"),
+}
 
 
 def _route(question: str) -> dict:
-    raw = llm.chat(
-        [{"role": "system", "content": _ROUTER_SYS},
-         {"role": "user", "content": question[:600]}],
-        fast=True, temperature=0.0, max_tokens=200, timeout=12.0, json_mode=True,
-    )
-    plan = _parse_json(raw) or {}
-    intent = plan.get("intent")
-    return {
-        "intent": intent if intent in _INTENTS else "general",
-        "needs_regulation": bool(plan.get("needs_regulation", True)),
-        "needs_evidence_chain": bool(plan.get("needs_evidence_chain", True)),
-        "search_query": str(plan.get("search_query") or question)[:200],
-    }
+    """Intent by keyword, and the raw question as the retrieval query."""
+    low = question.lower()
+    intent = "general"
+    # Ordered by specificity: a question about a rule stays a rule question even when it
+    # also contains "should I".
+    for key in ("rule", "source", "forecast", "action", "current"):
+        if any(w in low for w in _INTENT_WORDS[key]):
+            intent = key
+            break
+    return {"intent": intent, "search_query": question[:200]}
 
 
 def _parse_json(raw: str | None) -> dict | None:
@@ -294,7 +302,7 @@ def answer(question: str, zone: dict, persona_key: str = "general",
         step = time.time()
         plan = _route(question)
         trace.append({"agent": "router", "ms": int((time.time() - step) * 1000),
-                      "intent": plan["intent"], "query": plan["search_query"]})
+                      "model": "deterministic", "intent": plan["intent"]})
 
         step = time.time()
         ret = _retrieve(plan, zone.get("zone_id", ""), persona.key)
@@ -358,9 +366,13 @@ def describe() -> dict:
     return {
         "available": available(),
         "enabled": ENABLED,
+        "used_by_chat": CHAT_ENABLED,
+        "added_latency_note": (
+            "the pipeline adds roughly four seconds to a reply, because the analyst and "
+            "verifier are two sequential model calls"),
         "agents": [
-            {"name": "router", "model": "gpt-oss-20b",
-             "job": "classify intent and choose what evidence would answer it"},
+            {"name": "router", "model": "deterministic",
+             "job": "classify intent by keyword and set the retrieval query"},
             {"name": "retriever", "model": "deterministic",
              "job": "BM25 over the regulatory corpus plus the ward evidence chain from the knowledge graph"},
             {"name": "analyst", "model": "gpt-oss-120b",

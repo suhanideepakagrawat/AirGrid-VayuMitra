@@ -145,7 +145,10 @@ def answer(
     agent: dict = {"used": False}
     try:
         from advisory import agents as agents_mod
-        agent = agents_mod.answer(message, zone, persona.key, str(horizon))
+        if agents_mod.CHAT_ENABLED:
+            agent = agents_mod.answer(message, zone, persona.key, str(horizon))
+        else:
+            agent = {"used": False, "reason": "pipeline available, chat set to single-pass"}
     except Exception:
         agent = {"used": False, "reason": "agents unavailable"}
 

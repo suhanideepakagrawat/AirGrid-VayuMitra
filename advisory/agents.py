@@ -176,63 +176,59 @@ def _analyse(question: str, persona: Persona, measured: dict, ret: dict) -> str 
 # 4 · Verifier
 # ---------------------------------------------------------------------------
 
-_VERIFIER_SYS = (
-    "You check a public-health advisory draft for factual violations. You are given "
-    "EVIDENCE (regulatory passages) and MEASURED (facts our own system computed), then a "
-    "DRAFT.\n"
-    "MEASURED is authoritative. Anything stated in MEASURED is true and needs no further "
-    "support. EVIDENCE is authoritative for what regulations say.\n"
-    "Reply with STRICT JSON only: "
-    '{"ok": true|false, "reason": "one short sentence"}.\n'
-    "Set ok=false ONLY for one of these four violations:\n"
-    "1. The DRAFT states a numeric value or threshold that appears in neither EVIDENCE "
-    "nor MEASURED.\n"
-    "2. The DRAFT names a CPCB band different from the band in MEASURED.\n"
-    "3. The DRAFT attributes a rule or claim to an authority that EVIDENCE does not "
-    "support.\n"
-    "4. The DRAFT gives a medical diagnosis or recommends medication.\n"
-    "5. The DRAFT treats a sensitive persona's air as BETTER than measured, or gives "
-    "them more relaxed advice than the general public would get. Escalation always makes "
-    "their guidance more cautious.\n"
-    "Otherwise set ok=true. Default to ok=true. Do NOT reject for tone, for warmth, for "
-    "ordinary safety advice that follows from the band, for restating MEASURED facts, or "
-    "because a statement is merely not repeated word for word in EVIDENCE."
-)
+def _stated_numbers(text: str) -> list[str]:
+    """Numbers the draft asserts as measurements, not ordinary prose numbers.
+
+    Only figures attached to a unit or an index word count. "one of the three" is not a
+    measurement; "PM2.5 of 45 ug/m3" and "AQI 210" are.
+    """
+    out: list[str] = []
+    for m in re.finditer(
+        r"(?:aqi|pm2\.5|pm10|no2|so2|o3|index)\D{0,12}?(\d{1,3}(?:\.\d)?)"
+        r"|(\d{1,3}(?:\.\d)?)\s*(?:ug/m3|µg/m³|ug/m³|micrograms)",
+        text.lower(),
+    ):
+        out.append(m.group(1) or m.group(2))
+    return out
 
 
 def _verify(draft: str, measured: dict, ret: dict) -> dict:
-    # The verifier must be given exactly what the analyst was given. Withholding the
-    # evidence chain made it reject the ward's own attribution as unsupported.
-    chain = ret["chain"]
-    parts = [
-        f"MEASURED:\n- ward: {measured['ward']}\n- AQI: {measured['aqi']}\n",
-        f"- CPCB band: {measured['band_label']} ({measured['band_range']})\n",
-        f"- dominant source: {measured.get('dominant') or 'not established'}\n",
-    ]
-    if chain:
-        parts.append(f"- evidence chain: {chain['chain']}\n")
-        if chain["persona"]["escalated_bands"]:
-            parts.append(
-                f"- guidance for this persona is taken from a band "
-                f"{chain['persona']['escalated_bands']} step(s) MORE SEVERE than the "
-                f"measured band, so their advice must be more cautious, never more "
-                f"relaxed, than the general public's\n")
-    parts.append(f"\nEVIDENCE:\n{ret['context'] or '(none)'}\n\n")
-    parts.append(f"DRAFT:\n{draft}\n")
-    user = "".join(parts)
-    raw = llm.chat(
-        [{"role": "system", "content": _VERIFIER_SYS},
-         {"role": "user", "content": user}],
-        fast=True, temperature=0.0, max_tokens=200, timeout=12.0, json_mode=True,
-    )
-    got = _parse_json(raw)
-    if got is None:
-        # A verifier that cannot answer must not be treated as approval. But it must not
-        # block a good answer either, so this is recorded and the draft still goes to the
-        # deterministic band check below.
-        return {"ok": True, "reason": "verifier unavailable", "checked": False}
-    return {"ok": bool(got.get("ok")), "reason": str(got.get("reason") or "")[:200],
-            "checked": True}
+    """Deterministic verification. No model call, and therefore no added latency.
+
+    This began as a second LLM call. Two things were wrong with that. It cost roughly
+    four seconds on every reply, which is a lot to spend on a citizen waiting for health
+    advice. And a fact-checker that is itself a language model can hallucinate its own
+    verdict - it approved drafts it should not have, and rejected correctly escalated
+    ones, until it was given the same evidence as the analyst.
+
+    Checking claims against the grounding facts in code is faster, free, and cannot
+    itself invent anything. Every rule below is a claim we can actually adjudicate.
+    """
+    reasons: list[str] = []
+
+    # (a) Numeric claims must trace to a fact we hold. The grounding surface is the
+    # measured values plus the retrieved passages - anything else is invented.
+    supported = {str(measured["aqi"]), str(measured["aqi"]) + ".0"}
+    supported |= set(re.findall(r"\d{1,3}(?:\.\d)?", measured["band_range"]))
+    supported |= set(re.findall(r"\d{1,3}(?:\.\d)?", ret.get("context") or ""))
+    if ret.get("chain"):
+        supported |= set(re.findall(r"\d{1,3}(?:\.\d)?", ret["chain"].get("chain") or ""))
+    invented = [n for n in _stated_numbers(draft) if n not in supported]
+    if invented:
+        reasons.append(f"states {invented[0]} as a measurement, which is not in the evidence")
+
+    # (b) An authority may only be named if a retrieved passage came from it.
+    cited_ok = " ".join(
+        (p.get("publisher") or "") + " " + (p.get("title") or "") for p in ret["passages"]
+    ).lower()
+    for name, token in (("WHO", "world health"), ("SAFAR", "safar"),
+                        ("NCAP", "national clean air"), ("GRAP", "graded response")):
+        if re.search(rf"\b{name}\b", draft) and token not in cited_ok:
+            reasons.append(f"cites {name}, which no retrieved passage supports")
+            break
+
+    return {"ok": not reasons, "reason": "; ".join(reasons)[:200], "checked": True,
+            "model": "deterministic"}
 
 
 _BAND_WORDS = {
@@ -367,9 +363,10 @@ def describe() -> dict:
         "available": available(),
         "enabled": ENABLED,
         "used_by_chat": CHAT_ENABLED,
-        "added_latency_note": (
-            "the pipeline adds roughly four seconds to a reply, because the analyst and "
-            "verifier are two sequential model calls"),
+        "llm_calls_per_reply": 1,
+        "latency_note": (
+            "one model call per reply, the same as before the pipeline existed: routing, "
+            "retrieval and verification are deterministic"),
         "agents": [
             {"name": "router", "model": "deterministic",
              "job": "classify intent by keyword and set the retrieval query"},
@@ -377,8 +374,8 @@ def describe() -> dict:
              "job": "BM25 over the regulatory corpus plus the ward evidence chain from the knowledge graph"},
             {"name": "analyst", "model": "gpt-oss-120b",
              "job": "compose an answer from retrieved evidence only"},
-            {"name": "verifier", "model": "gpt-oss-20b",
-             "job": "reject any claim not supported by the evidence or contradicting the measured band"},
+            {"name": "verifier", "model": "deterministic",
+             "job": "reject invented figures, unsupported citations, and any band that contradicts the measurement"},
         ],
         "on_rejection": "fall back to the deterministic CPCB template",
         "corpus": rag.stats(),

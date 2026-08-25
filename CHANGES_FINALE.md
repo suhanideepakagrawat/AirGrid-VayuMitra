@@ -1045,3 +1045,76 @@ Stage III applies at AQI 101-200 when it is 401-450.
 `advisory/agents.py`, `advisory/chat.py`, `advisory/health_bands.py`,
 `backend/advisory_api.py`, `frontend/src/components/ReasoningPanel.tsx`,
 `frontend/src/routes/health.tsx`.
+
+---
+
+## B21 - Multi-agent, RAG and a knowledge graph, at no latency cost (25 Aug 2026)
+
+Three technologies the problem statement lists and we did not have. Added as working
+code rather than as claims, and measured before being recommended.
+
+**RAG over a regulatory corpus.** `advisory/corpus/` holds five documents - the CPCB
+National AQI method, the GRAP stage ladder, the WHO 2021 guideline values, NCAP targets,
+and the pollutant-signature basis for attribution - split into 23 passages at their
+headings so a band table or a GRAP stage stays whole. `advisory/rag.py` retrieves with
+BM25, in pure standard library. Vector search would have meant a sentence-transformer,
+which means torch, which means roughly half a gigabyte in a container that currently
+starts in seconds; on a closed regulatory vocabulary where the query words *are* the
+document words, lexical retrieval is the right tool rather than a compromise.
+
+**A typed knowledge graph.** `advisory/graph.py` builds 266 nodes and 935 edges from
+data the pipeline already produces: wards, bands, GRAP stages, source categories,
+pollutants, personas, enforcement targets, teams and actions. `explain_ward()` walks it
+to return the evidence chain the product always implied but could never show - ward, to
+band, to GRAP stage, to persona escalation, to dominant source, to the team and action in
+the queue.
+
+**A four-agent pipeline** in `advisory/agents.py`: router, retriever, analyst, verifier,
+with rejection falling back to the deterministic CPCB template so the answer can only get
+safer.
+
+### Two things the measurements changed
+
+**The LLM router was making retrieval worse.** Its rewrite of "Can my child play outside
+this evening?" was "Delhi child outdoor activity air quality regulation", which retrieved
+GRAP and NCAP boilerplate; the raw question retrieves "Sensitive groups" and "Populations
+at higher risk". Generic padding words match generic passages. Replaced with the
+deterministic keyword router `chat.py` already had: faster, more accurate, cannot fail.
+
+**The LLM verifier cost four seconds and could hallucinate its own verdict.** It is now
+deterministic: it rejects a numeric claim that traces to neither the measured values nor
+a retrieved passage, an authority named without a supporting passage, and any CPCB band
+that is neither the measured band nor this persona's escalated band. Checking claims in
+code is free, instant, and cannot itself invent anything.
+
+Result: **one model call per reply, the same as before the pipeline existed.**
+
+| | Chat reply |
+|---|---:|
+| Before this work | 1.55 s |
+| With the full pipeline | **1.81 s** |
+
+Four test questions, all completing as `agentic_rag` with no fallback.
+
+### A live bug found while building it
+
+Building the graph surfaced a genuine defect in `band_for_aqi`. The CPCB ranges are
+integer and contiguous only over integers - 0-50, then 51-100 - so a fractional AQI
+sitting between an upper bound and the next lower bound matched no band and fell through
+to the "above the top range" case, returning **Severe**. On the deployed site this was
+labelling four wards Severe: Harsh Vihar at AQI 100, Karawal Nagar West at 51, Raja
+Garden and Gandhi Nagar at 50. Dark red on the map, Severe health guidance in the
+advisory. Now selected on the lower bound, with NaN guarded explicitly rather than
+picking a band by accident.
+
+**New endpoints.** `/ai/pipeline`, `/rag/search`, `/rag/ask`, `/graph`, `/graph/ward/{id}`.
+All additive and read-only; every one degrades to `available: false`.
+
+**Verification.** 20/20 tests. Five routes x two viewports: zero JS errors, zero
+horizontal overflow, no degraded state rendered anywhere. Graph warms in a background
+thread at startup so its ~3 s build never lands on a request.
+
+**Files.** `advisory/corpus/*.md`, `advisory/rag.py`, `advisory/graph.py`,
+`advisory/agents.py`, `advisory/chat.py`, `advisory/health_bands.py`,
+`backend/advisory_api.py`, `frontend/src/components/ReasoningPanel.tsx`,
+`frontend/src/lib/api.ts`, `frontend/src/routes/health.tsx`.

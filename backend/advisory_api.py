@@ -664,9 +664,13 @@ def _start_live_refresh() -> None:
     def _loop() -> None:
         while True:
             try:
-                live_mod.live_wards(list_zones(), force=True)
-            except Exception:
-                pass          # keep the last good cache; never kill the thread
+                got = live_mod.live_wards(list_zones(), force=True)
+                if not got.get("available"):
+                    print(f"[live-refresh] no data: {got.get('reason')}", flush=True)
+            except Exception as exc:
+                # Never kill the thread, but never hide the reason either: this loop
+                # failed silently for forty minutes and the only symptom was a spinner.
+                print(f"[live-refresh] error: {type(exc).__name__}: {exc}", flush=True)
             time.sleep(interval)
 
     threading.Thread(target=_loop, daemon=True, name="live-refresh").start()

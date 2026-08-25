@@ -349,7 +349,8 @@ function PulseStrip({
       // "Now" is a measurement, not the +24 h forecast. Reading it off the same
       // map every other panel uses is what keeps the average, the worst ward, the
       // band census and the map itself telling one story.
-      const aqis = isNow(horizon)
+      const measured = isNow(horizon) && liveAqi.size > 0;
+      const aqis = measured
         ? liveWards.map((w) => aqiForSel(w, "now", liveAqi))
         : perHorizon[asForecast(horizon)];
       const worstIdx = aqis.indexOf(Math.max(...aqis));
@@ -361,6 +362,7 @@ function PulseStrip({
         worstAqi: aqis[worstIdx] ?? 0,
         unit: "wards",
         count: liveWards.length,
+        measured,
       };
     }
     const aqis = CELLS.map((c) => cellAqi(c, asForecast(horizon)));
@@ -375,6 +377,7 @@ function PulseStrip({
       worstAqi: aqis[worstIdx] ?? 0,
       unit: "cells",
       count: CELLS.length,
+      measured: false,
     };
   }, [liveWards, horizon, liveAqi]);
 
@@ -407,7 +410,7 @@ function PulseStrip({
       <div className="hidden min-w-[220px] max-w-[340px] flex-1 xl:block">
         <BandDistribution
           aqis={stats.aqis}
-          caption={`${stats.count} ${stats.unit} · ${dataKind === "real" ? "real pipeline forecast" : dataKind === "mock" ? "pipeline sample" : "sample scene"} · ${isNow(horizon) ? "measured now" : `+${horizon} h`}`}
+          caption={`${stats.count} ${stats.unit} · ${dataKind === "real" ? "real pipeline forecast" : dataKind === "mock" ? "pipeline sample" : "sample scene"} · ${stats.measured ? "measured now" : isNow(horizon) ? "+24 h forecast · live feed down" : `+${horizon} h`}`}
         />
       </div>
 
@@ -460,9 +463,13 @@ function WardFinder({
     ? "Ward feed"
     : query.trim()
       ? `Matches · ${rows.length}${rows.length === 12 ? "+" : ""}`
-      : isNow(horizon)
-        ? "Worst wards · measured now"
-        : `Worst wards · measured now vs +${horizon} h`;
+      : liveById.size === 0
+        // The station feed is down, so these rows are forecast values. Saying
+        // "measured now" over them is the one thing this page must never do.
+        ? `Worst wards · +${isNow(horizon) ? "24" : horizon} h forecast · live feed down`
+        : isNow(horizon)
+          ? "Worst wards · measured now"
+          : `Worst wards · measured now vs +${horizon} h`;
 
   return (
     <div className="border-b border-border p-4">
@@ -679,6 +686,10 @@ function WardDetail({
   onHorizon: (h: HorizonSel) => void;
   deployRows: DeploymentRow[];
 }) {
+  // react-query dedupes this against the dashboard's own subscription, so reading the
+  // measured layer here costs nothing and keeps the caption from claiming "measured
+  // now" when the station feed is down.
+  const liveAqi = useLiveAqiMap();
   const liveById = useLiveAqiMap();
   const aqiNow = aqiForSel(ward, horizon, liveById);
   // Now first, then the forecasts - the order a reader actually wants.
@@ -709,7 +720,7 @@ function WardDetail({
           <AqiBall aqi={aqiNow} size={64} />
           <div>
             <BandBadge aqi={aqiNow} />
-            <div className="mono mt-1 text-[11px] text-text-mute">CPCB band · {isNow(horizon) ? "measured now" : `+${horizon} h`}</div>
+            <div className="mono mt-1 text-[11px] text-text-mute">CPCB band · {isNow(horizon) ? (liveAqi.size > 0 ? "measured now" : "+24 h forecast · live feed down") : `+${horizon} h`}</div>
             <div className="mt-1"><DeltaTag now={aqiNow} base={values["24"] ?? aqiNow} /></div>
           </div>
         </div>

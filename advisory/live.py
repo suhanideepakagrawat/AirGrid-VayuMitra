@@ -338,9 +338,33 @@ def cached_live_wards(zones: list[dict]) -> dict:
                 "wards": [], "stations": 0}
     if _result_cache and _time.time() - _result_cache[0] < _RESULT_TTL:
         return _result_cache[1]
+    if _result_cache:
+        # Past its TTL but it is the truth we have. Age is already on every screen.
+        out = dict(_result_cache[1])
+        out["stale"] = True
+        return out
     return {"available": False, "state": "warming",
             "reason": "live station data is being fetched — retry shortly",
             "wards": [], "stations": 0}
+
+
+def _remember(result: dict) -> dict:
+    """Record a result, including a failure, so /live can report what actually happened.
+
+    Only a genuine success is allowed to overwrite a previous success: a transient
+    upstream failure should not erase readings we still hold, it should be reported
+    alongside them.
+    """
+    global _result_cache
+    import time as _time
+    if result.get("available") or not (_result_cache and _result_cache[1].get("available")):
+        _result_cache = (_time.time(), result)
+    else:
+        prev = dict(_result_cache[1])
+        prev["stale"] = True
+        prev["refresh_error"] = result.get("reason")
+        _result_cache = (_result_cache[0], prev)
+    return result
 
 
 def live_wards(zones: list[dict], force: bool = False) -> dict:
@@ -349,9 +373,9 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
     Blocking — call from the background refresher, not the request path.
     """
     if not openaq.available():
-        return {"available": False,
-                "reason": "OPENAQ_API_KEY not configured",
-                "wards": [], "stations": 0}
+        return _remember({"available": False,
+                          "reason": "OPENAQ_API_KEY not configured",
+                          "wards": [], "stations": 0})
 
     stations = openaq.live_stations(force=force)
     # Index the CPCB-defined average, not the latest hour. Measured against our own
@@ -362,9 +386,14 @@ def live_wards(zones: list[dict], force: bool = False) -> dict:
     # Fingerprints run on the CLEANED set only — see fingerprint_all's docstring.
     scored = fp.fingerprint_all(scored)
     if not scored:
-        return {"available": False,
-                "reason": "no station reported within the freshness window",
-                "wards": [], "stations": 0}
+        return _remember({
+            "available": False,
+            "reason": ("the station feed returned nothing usable - the upstream API "
+                       "rejected our credentials or every reading failed the quality "
+                       "gates"),
+            "wards": [], "stations": 0,
+            "stations_fetched": len(stations),
+        })
 
     wards = []
     for z in zones:

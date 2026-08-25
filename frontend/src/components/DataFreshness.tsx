@@ -103,7 +103,11 @@ export function DataFreshness({ className = "" }: { className?: string }) {
               · latest {timeAgo(live.data?.observed_at)}
             </span>
           </>
-        ) : live.data?.state === "warming" ? (
+        ) : live.data?.state === "warming" && (live.dataUpdatedAt ?? 0) > 0 &&
+             Date.now() - (live.dataUpdatedAt ?? 0) < 90_000 ? (
+          // Only ever a genuine warm-up. The API says "warming" when it has not yet
+          // fetched; if it is still saying that after a minute and a half, the feed is
+          // down, and a spinner that never resolves is the wrong thing to show.
           <span className="text-[12px] text-text-dim">fetching station readings…</span>
         ) : (
           <span className="text-[12px] text-text-dim">

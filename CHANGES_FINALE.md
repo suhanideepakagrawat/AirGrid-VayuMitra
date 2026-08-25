@@ -1118,3 +1118,52 @@ thread at startup so its ~3 s build never lands on a request.
 `advisory/agents.py`, `advisory/chat.py`, `advisory/health_bands.py`,
 `backend/advisory_api.py`, `frontend/src/components/ReasoningPanel.tsx`,
 `frontend/src/lib/api.ts`, `frontend/src/routes/health.tsx`.
+
+---
+
+## B22 - The OpenAQ key died, and the site spun forever instead of saying so (25 Aug 2026)
+
+**Reported:** "fetching station readings…" across the whole site.
+
+**Root cause, external:** the OpenAQ API key now returns **401 Invalid credentials**.
+Verified directly against `api.openaq.org/v3/locations`, and verified that the key in
+Render is byte-identical to the local one (both 64 chars, same SHA-256 prefix) and that
+we send the correct `X-API-Key` header. The key has been revoked or expired upstream.
+Nothing in our code caused it and no code change can fix it - it needs a new key.
+
+**What our code got wrong, and this is the part worth fixing.** The failure was
+invisible and unbounded:
+
+1. **`live_wards` did not cache its failures.** Both early returns left `_result_cache`
+   untouched, so `cached_live_wards()` kept answering `state: "warming"` - the state that
+   means *we have not tried yet*. The feed had been failing for forty minutes and every
+   screen showed a spinner that could never resolve.
+2. **The refresh loop swallowed the reason.** `except Exception: pass` with no log, so
+   the service logs contained no hint at all. Diagnosis had to start from the Render API.
+3. **The UI claimed measurements it did not have.** With the live map empty,
+   `aqiForSel` correctly falls through to the +24 h forecast - but four captions still
+   said "measured now" over those forecast numbers, which is precisely the mislabelling
+   fixed in B16.
+
+**Fixed.** Failures are now recorded, with a rule that a transient upstream failure can
+never erase readings we still hold: it marks them `stale` and attaches `refresh_error`
+instead. Past its TTL the request path serves the last good reading labelled stale rather
+than falling back to "warming". The refresher logs both exceptions and empty results. The
+warm-up message only shows for a genuine warm-up (90 s), never indefinitely. And every
+caption that said "measured now" now checks whether anything was actually measured:
+
+| Surface | With the feed down |
+|---|---|
+| Freshness strip | "live station feed unavailable - forecast below is unaffected" |
+| Band census | "+24 h forecast · live feed down" |
+| Ward detail | "CPCB band · +24 h forecast · live feed down" |
+| Ward finder | "Worst wards · +24 h forecast · live feed down" |
+| Ward's measured panel | "no live station reading for this ward" |
+
+**Verification.** With the dead key in place: 20/20 tests, five routes render with zero
+JS errors, no spinner on any route, the dashboard fully usable on forecast data, and
+`/live` now reports the actual reason instead of "warming". Log line confirmed:
+`[live-refresh] no data: the station feed returned nothing usable…`
+
+**Files.** `advisory/live.py`, `backend/advisory_api.py`,
+`frontend/src/components/DataFreshness.tsx`, `frontend/src/routes/dashboard.tsx`.
